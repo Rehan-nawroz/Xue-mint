@@ -14,7 +14,9 @@ jobs:
       - name: Apply migration to a fresh SQLite database
         run: |
           which sqlite3 || (sudo apt-get update && sudo apt-get install -y sqlite3)
-          sqlite3 test.db < server/migrations/0001_init.sql
+          for migration in server/migrations/*.sql; do
+            sqlite3 test.db < "$migration"
+          done
           sqlite3 test.db ".tables"
 
   server:
@@ -36,16 +38,20 @@ jobs:
           fi
 
   web-and-shared:
-    name: Web and Shared (TypeScript) — lint and build
+    name: Web and Shared (TypeScript) — lint, test and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - name: Build shared package (activates once it exists)
-        if: hashFiles('shared/package.json') != ''
-        run: cd shared && npm install && npm run build
-      - name: Lint and build web (activates once it exists)
-        if: hashFiles('web/package.json') != ''
-        run: cd web && npm install && npm run lint && npm run build
+          node-version: 22
+          cache: npm
+      - name: Install workspace dependencies
+        if: hashFiles('package-lock.json') != ''
+        run: npm ci
+      - name: Lint, test and build shared and web
+        if: hashFiles('package-lock.json') != ''
+        run: |
+          npm run lint
+          npm run test
+          npm run build
