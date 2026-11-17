@@ -3,19 +3,24 @@
 
 use std::io::Write;
 
+use axum::body::{to_bytes, Body};
+use axum::http::{Request, StatusCode};
+use tower::ServiceExt;
+
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use image::GenericImageView;
 use serde_json::{json, Value};
 use sqlx::Row;
 
-use xue_mint_server::{config::Config, db, serve_on, state::AppState, tokens};
+use xue_mint_server::{build_router, config::Config, db, serve_on, state::AppState, tokens};
 
 fn test_config(base: &std::path::Path) -> Config {
     Config {
         port: 0,
         photos_dir: base.join("photos"),
         data_dir: base.join("data"),
+        web_dir: None,
     }
 }
 
@@ -96,6 +101,7 @@ fn exif_jpeg() -> Vec<u8> {
 async fn start_server() -> (String, sqlx::SqlitePool) {
     let dir = tempfile::tempdir().unwrap();
     let cfg = test_config(dir.path());
+    cfg.ensure_dirs().unwrap();
     let pool = db::open(&cfg).await.unwrap();
     db::apply_defaults(&pool).await.unwrap();
     let state = AppState::new(cfg, pool.clone());
@@ -534,6 +540,7 @@ async fn timeline_cursor_pagination_and_delete() {
 async fn watcher_indexes_files_dropped_into_photos_folder() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = test_config(dir.path());
+    cfg.ensure_dirs().unwrap();
     let pool = db::open(&cfg).await.unwrap();
     db::apply_defaults(&pool).await.unwrap();
     let state = AppState::new(cfg, pool);
@@ -572,6 +579,7 @@ async fn watcher_indexes_files_dropped_into_photos_folder() {
 async fn ingest_indexes_dropped_file() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = test_config(dir.path());
+    cfg.ensure_dirs().unwrap();
     let pool = db::open(&cfg).await.unwrap();
     db::apply_defaults(&pool).await.unwrap();
     let state = AppState::new(cfg, pool);
@@ -610,6 +618,7 @@ async fn ingest_indexes_dropped_file() {
 async fn exif_date_gps_and_orientation_are_extracted() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = test_config(dir.path());
+    cfg.ensure_dirs().unwrap();
     let pool = db::open(&cfg).await.unwrap();
     db::apply_defaults(&pool).await.unwrap();
     let state = AppState::new(cfg, pool);
@@ -646,6 +655,7 @@ async fn exif_date_gps_and_orientation_are_extracted() {
 async fn video_thumbnail_uses_ffmpeg_first_frame() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = test_config(dir.path());
+    cfg.ensure_dirs().unwrap();
     let pool = db::open(&cfg).await.unwrap();
     db::apply_defaults(&pool).await.unwrap();
     let state = AppState::new(cfg, pool);
@@ -708,6 +718,7 @@ async fn video_thumbnail_uses_ffmpeg_first_frame() {
 async fn undecodable_photo_gets_placeholder_thumbnail() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = test_config(dir.path());
+    cfg.ensure_dirs().unwrap();
     let pool = db::open(&cfg).await.unwrap();
     db::apply_defaults(&pool).await.unwrap();
     let state = AppState::new(cfg, pool);
@@ -729,4 +740,448 @@ async fn undecodable_photo_gets_placeholder_thumbnail() {
         state.cfg.thumbs_dir().join(format!("{hash}.jpg")).exists(),
         "placeholder thumbnail expected for undecodable input"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Gallery on this PC: session cookie, loopback-only endpoints, settings, static
+// files.
+// ---------------------------------------------------------------------------
+
+fn session_cookie(response: &reqwest::Response) -> String {
+    let raw = response
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .expect("session response must set a cookie")
+        .to_str()
+        .unwrap()
+        .to_string();
+    for expected in [
+        "xm_session=",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Strict",
+        "Path=/",
+    ] {
+        assert!(
+            raw.contains(expected),
+            "session cookie missing {expected}: {raw}"
+        );
+    }
+    raw.split(';').next().unwrap().to_string()
+}
+
+async fn put_settings(
+    http: &reqwest::Client,
+    base: &str,
+    cookie: &str,
+    body: Value,
+) -> reqwest::Response {
+    http.put(format!("{base}/local/settings"))
+        .header("Cookie", cookie)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+}
+
+async fn body_text(response: axum::response::Response) -> String {
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[tokio::test]
+async fn local_session_cookie_unlocks_gallery_and_hides_local_identity() {
+    let (base, pool) = start_server().await;
+    let http = client();
+
+    let response = http
+        .post(format!("{base}/local/session"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 204);
+    let cookie = session_cookie(&response);
+
+    // A second visit reuses the stored credential instead of minting a new one.
+    let again = http
+        .post(format!("{base}/local/session"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(again.status().as_u16(), 204);
+    assert_eq!(session_cookie(&again), cookie);
+
+    // Only the hash is stored; the plaintext credential never reaches SQLite.
+    let credential = cookie.strip_prefix("xm_session=").unwrap().to_string();
+    let row = sqlx::query("SELECT credential_hash, revoked FROM devices WHERE id = 'local'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let stored: String = row.get("credential_hash");
+    assert_eq!(stored.len(), 64);
+    assert_ne!(stored, credential);
+    assert_eq!(row.get::<i64, _>("revoked"), 0);
+
+    // Cookie authentication works for JSON endpoints and image endpoints alike.
+    let assets = http
+        .get(format!("{base}/assets"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(assets.status().as_u16(), 200);
+
+    let status = http
+        .get(format!("{base}/local/status"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(status.status().as_u16(), 200);
+    let summary: Value = status.json().await.unwrap();
+    assert_eq!(summary["assetCount"], 0);
+    assert_eq!(summary["photoCount"], 0);
+    assert_eq!(summary["videoCount"], 0);
+
+    // The built-in gallery identity is not a paired device and cannot be revoked.
+    let devices = http
+        .get(format!("{base}/devices"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(devices.status().as_u16(), 200);
+    let body: Value = devices.json().await.unwrap();
+    assert_eq!(body["devices"].as_array().unwrap().len(), 0);
+
+    let revoke = http
+        .delete(format!("{base}/devices/local"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revoke.status().as_u16(), 404);
+}
+
+#[tokio::test]
+async fn local_endpoints_reject_requests_without_loopback_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = test_config(dir.path());
+    cfg.ensure_dirs().unwrap();
+    let pool = db::open(&cfg).await.unwrap();
+    db::apply_defaults(&pool).await.unwrap();
+    let app = build_router(AppState::new(cfg, pool));
+
+    // No ConnectInfo extension means the transport identity is unavailable; the
+    // server must refuse rather than fall back to a header or trust the caller.
+    for (method, uri) in [
+        ("GET", "/local/status"),
+        ("GET", "/local/settings"),
+        ("POST", "/local/session"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("Host", "127.0.0.1")
+                    .header("Origin", "https://127.0.0.1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "{method} {uri} must require loopback transport identity"
+        );
+    }
+}
+
+#[tokio::test]
+async fn settings_validate_persist_and_report_restart() {
+    let (base, pool) = start_server().await;
+    let http = client();
+    let cookie = session_cookie(
+        &http
+            .post(format!("{base}/local/session"))
+            .send()
+            .await
+            .unwrap(),
+    );
+
+    let current = http
+        .get(format!("{base}/local/settings"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(current.status().as_u16(), 200);
+    let current: Value = current.json().await.unwrap();
+    assert_eq!(current["deleteBehavior"], "index_only");
+    assert_eq!(current["restartRequired"], false);
+    let active_port = current["activePort"].clone();
+
+    for invalid in [
+        json!({ "deleteBehavior": "nuke" }),
+        json!({ "port": 80 }),
+        json!({ "photosFolder": "relative/photos" }),
+        json!({ "photosFolder": "   " }),
+    ] {
+        let response = put_settings(&http, &base, &cookie, invalid.clone()).await;
+        assert_eq!(
+            response.status().as_u16(),
+            400,
+            "invalid settings must be rejected: {invalid}"
+        );
+    }
+
+    let folder = dir_with_new_photos();
+    let folder_text = folder.to_string_lossy().into_owned();
+    let saved = put_settings(
+        &http,
+        &base,
+        &cookie,
+        json!({
+            "photosFolder": folder_text,
+            "port": 9000,
+            "deleteBehavior": "delete_file"
+        }),
+    )
+    .await;
+    assert_eq!(saved.status().as_u16(), 200);
+    let saved: Value = saved.json().await.unwrap();
+    assert_eq!(saved["restartRequired"], true);
+    assert_eq!(saved["port"], 9000);
+    assert_eq!(saved["deleteBehavior"], "delete_file");
+    assert_eq!(saved["activePort"], active_port);
+
+    let reloaded = http
+        .get(format!("{base}/local/settings"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    let reloaded: Value = reloaded.json().await.unwrap();
+    assert_eq!(reloaded["port"], 9000);
+    assert_eq!(reloaded["photosFolder"], folder_text);
+    assert_eq!(reloaded["deleteBehavior"], "delete_file");
+    assert_eq!(reloaded["restartRequired"], true);
+
+    let stored_port = sqlx::query("SELECT value FROM settings WHERE key = 'port'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored_port.get::<String, _>("value"), "9000");
+    let stored_behavior = sqlx::query("SELECT value FROM settings WHERE key = 'delete_behavior'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored_behavior.get::<String, _>("value"), "delete_file");
+
+    if let Some(parent) = folder.parent() {
+        std::fs::remove_dir_all(parent).ok();
+    }
+}
+
+/// Creates a unique folder path for settings tests without leaving files behind.
+fn dir_with_new_photos() -> std::path::PathBuf {
+    let base = std::env::temp_dir().join(format!("xue-mint-settings-{}", std::process::id()));
+    base.join(format!("photos-{}", uuid::Uuid::new_v4()))
+}
+
+#[tokio::test]
+async fn built_gallery_is_served_with_spa_fallback_and_api_precedence() {
+    let dir = tempfile::tempdir().unwrap();
+    let web_dir = dir.path().join("web");
+    std::fs::create_dir_all(&web_dir).unwrap();
+    std::fs::write(
+        web_dir.join("index.html"),
+        "<!doctype html><title>gallery-marker</title><div id=\"root\"></div>",
+    )
+    .unwrap();
+
+    let cfg = Config {
+        web_dir: Some(web_dir),
+        ..test_config(dir.path())
+    };
+    cfg.ensure_dirs().unwrap();
+    let pool = db::open(&cfg).await.unwrap();
+    db::apply_defaults(&pool).await.unwrap();
+    let app = build_router(AppState::new(cfg, pool));
+
+    // Site root and unknown application paths resolve to the gallery entry point.
+    for uri in ["/", "/library/2024", "/some/deep/route"] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{uri} must serve the gallery"
+        );
+        assert!(
+            body_text(response).await.contains("gallery-marker"),
+            "{uri} must return the gallery entry point"
+        );
+    }
+
+    // Files outside the built gallery (the database, for example) are never served.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/data/library.db")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_text(response).await;
+    assert!(body.contains("gallery-marker"));
+    assert!(!body.contains("SQLite format 3"));
+
+    // API routes keep precedence over the static fallback and still authenticate.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/assets")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(body_text(response).await.contains("AUTH_REQUIRED"));
+
+    // Loopback-only endpoints stay closed when the transport identity is missing.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/local/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+/// Starts a server and keeps the state so a test can index files directly.
+async fn start_server_state() -> (String, sqlx::SqlitePool, AppState) {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = test_config(dir.path());
+    cfg.ensure_dirs().unwrap();
+    let pool = db::open(&cfg).await.unwrap();
+    db::apply_defaults(&pool).await.unwrap();
+    let state = AppState::new(cfg.clone(), pool.clone());
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let serving = state.clone();
+    tokio::spawn(async move {
+        serve_on(serving, listener).await.unwrap();
+    });
+    std::mem::forget(dir);
+
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+
+    (format!("https://127.0.0.1:{port}"), pool, state)
+}
+
+#[tokio::test]
+async fn delete_behavior_controls_whether_the_file_is_removed() {
+    let (base, pool, state) = start_server_state().await;
+    let http = client();
+    let cookie = session_cookie(
+        &http
+            .post(format!("{base}/local/session"))
+            .send()
+            .await
+            .unwrap(),
+    );
+
+    async fn add_photo(state: &AppState, pool: &sqlx::SqlitePool, name: &str) -> String {
+        let path = state.cfg.photos_dir.join(name);
+        // Different trailing bytes keep the two fixtures from deduplicating.
+        let mut bytes = test_jpeg();
+        bytes.extend_from_slice(name.as_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        xue_mint_server::ingest::ingest_file(state, &path)
+            .await
+            .unwrap();
+        sqlx::query("SELECT id FROM assets WHERE filename = ?")
+            .bind(name)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+            .get("id")
+    }
+
+    // delete_file removes the stored file from disk.
+    let delete_file_id = add_photo(&state, &pool, "delete-me.jpg").await;
+    let keep_on_index_id = add_photo(&state, &pool, "keep-me.jpg").await;
+    let delete_file_path = state.cfg.photos_dir.join("delete-me.jpg");
+
+    let saved = put_settings(
+        &http,
+        &base,
+        &cookie,
+        json!({ "deleteBehavior": "delete_file" }),
+    )
+    .await;
+    assert_eq!(saved.status().as_u16(), 200);
+
+    let response = http
+        .delete(format!("{base}/assets/{delete_file_id}"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 204);
+    assert!(
+        !delete_file_path.exists(),
+        "delete_file must remove the file from disk"
+    );
+
+    // index_only keeps the file while removing the library entry.
+    let keep_path = state.cfg.photos_dir.join("keep-me.jpg");
+    let saved = put_settings(
+        &http,
+        &base,
+        &cookie,
+        json!({ "deleteBehavior": "index_only" }),
+    )
+    .await;
+    assert_eq!(saved.status().as_u16(), 200);
+
+    let response = http
+        .delete(format!("{base}/assets/{keep_on_index_id}"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 204);
+    assert!(keep_path.exists(), "index_only must keep the file on disk");
+
+    let remaining: i64 = sqlx::query("SELECT COUNT(*) AS n FROM assets")
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get("n");
+    assert_eq!(remaining, 0);
 }
