@@ -35,7 +35,7 @@ def main():
             raise SystemExit(1)
         # Quick sanity insert/delete on each table so constraints are exercised.
         conn.execute(
-            "INSERT INTO devices (id, name, public_key, credential, paired_at) "
+            "INSERT INTO devices (id, name, public_key, credential_hash, paired_at) "
             "VALUES ('test', 'test', x'00', 'test', '2025-01-01T00:00:00Z')"
         )
         conn.execute(

@@ -9,8 +9,6 @@ build/
 **/build/
 
 # Rust
-Cargo.lock
-
 # SQLite databases (photos folder is deliberately NOT in the repo)
 *.db
 *.db-wal

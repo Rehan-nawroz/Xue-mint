@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS devices (
     id          TEXT PRIMARY KEY,                -- server-generated id (uuid)
     name        TEXT NOT NULL,                   -- shown in the paired-devices UI
     public_key  BLOB NOT NULL UNIQUE,            -- phone's public key (from pairing)
-    credential  TEXT NOT NULL,                   -- device credential (hashed at rest; see note)
+    credential_hash TEXT NOT NULL,             -- SHA-256 of the device credential (plaintext lives only on the phone)
     paired_at   TEXT NOT NULL,                   -- ISO-8601
     last_seen_at TEXT,
     revoked     INTEGER NOT NULL DEFAULT 0       -- 1 = blocked immediately
