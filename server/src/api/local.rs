@@ -5,10 +5,12 @@
 //! change settings, or read desktop-only status.
 
 use crate::auth::SESSION_COOKIE;
+use crate::certs;
 use crate::db::get_setting;
 use crate::errors::ApiError;
 use crate::media::{now_iso, sha256_hex};
 use crate::state::AppState;
+use crate::tokens;
 use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::http::request::Parts;
 use axum::http::{header, StatusCode};
@@ -16,6 +18,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::net::SocketAddr;
@@ -130,7 +133,7 @@ async fn read_settings(state: &AppState) -> Result<SettingsDto, ApiError> {
         .await?
         .unwrap_or_else(|| "index_only".to_string());
 
-    let active_photos = state.cfg.photos_dir.clone();
+    let active_photos = state.photos_dir();
     let stored_folder = get_setting(&state.pool, "photos_folder").await?;
     let photos_folder = stored_folder
         .clone()
@@ -141,7 +144,9 @@ async fn read_settings(state: &AppState) -> Result<SettingsDto, ApiError> {
         .and_then(|value| value.parse::<u16>().ok());
     let port = stored_port.unwrap_or(state.cfg.port);
 
-    let restart_required = PathBuf::from(&photos_folder) != active_photos || port != state.cfg.port;
+    // The folder applies immediately (the watcher re-targets); only the port
+    // needs a restart because the listener is already bound.
+    let restart_required = port != state.cfg.port;
 
     Ok(SettingsDto {
         delete_behavior,
@@ -199,6 +204,7 @@ pub async fn put_settings(
         None => None,
     };
 
+    let next_folder = folder.clone();
     let writes = [
         ("delete_behavior", update.delete_behavior),
         ("photos_folder", folder),
@@ -215,6 +221,21 @@ pub async fn put_settings(
             .execute(&state.pool)
             .await?;
         }
+    }
+
+    if let Some(folder) = next_folder {
+        let path = PathBuf::from(folder);
+        state
+            .retarget_watcher(&path)
+            .map_err(|error| ApiError::internal(format!("Could not watch that folder: {error}")))?;
+        state.set_photos_dir(path);
+        // Files already in the new folder are indexed in the background.
+        let scan_state = state.clone();
+        tokio::spawn(async move {
+            if let Err(error) = crate::ingest::scan_existing(&scan_state).await {
+                println!("Scan after folder change failed: {error}");
+            }
+        });
     }
 
     Ok(Json(read_settings(&state).await?))
@@ -274,4 +295,103 @@ pub async fn status(
         last_activity_at: assets.get("last_added"),
         last_device_seen_at: devices.get("last_seen"),
     }))
+}
+
+// ---------------------------------------------------------------------------
+// GET/POST /local/pairing - QR contents for the desktop pairing window
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingInfoDto {
+    pub version: u8,
+    pub server_name: String,
+    pub addresses: Vec<String>,
+    pub port: u16,
+    pub fingerprint: String,
+    pub token: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+/// Non-loopback IPv4 addresses the phone can try, with a loopback fallback.
+fn lan_addresses() -> Vec<String> {
+    let mut addresses = Vec::new();
+    let primary = primary_ipv4();
+    if let Ok(interfaces) = if_addrs::get_if_addrs() {
+        for interface in interfaces {
+            let ip = interface.ip();
+            if ip.is_loopback() || !ip.is_ipv4() {
+                continue;
+            }
+            addresses.push(ip.to_string());
+        }
+    }
+    addresses.sort();
+    addresses.dedup();
+    if let Some(primary) = primary {
+        let primary = primary.to_string();
+        addresses.sort_by_key(|address| address != &primary);
+    }
+    if addresses.is_empty() {
+        addresses.push("127.0.0.1".to_string());
+    }
+    addresses
+}
+
+fn primary_ipv4() -> Option<std::net::IpAddr> {
+    // Connecting a UDP socket performs a route lookup without sending packets.
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("192.0.2.1:80").ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    (!ip.is_loopback()).then_some(ip)
+}
+
+fn server_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .ok()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "Xue-Mint".to_string())
+}
+
+fn pairing_dto(
+    state: &AppState,
+    token: Option<String>,
+    expires_at: Option<String>,
+) -> Result<PairingInfoDto, ApiError> {
+    let (cert_pem, _) =
+        certs::ensure_cert(&state.cfg).map_err(|error| ApiError::internal(error.to_string()))?;
+    Ok(PairingInfoDto {
+        version: 1,
+        server_name: server_name(),
+        addresses: lan_addresses(),
+        port: state.cfg.port,
+        fingerprint: certs::fingerprint(&cert_pem)
+            .map_err(|error| ApiError::internal(error.to_string()))?,
+        token,
+        expires_at,
+    })
+}
+
+pub async fn pairing_info(
+    State(state): State<AppState>,
+    _local: LocalOnly,
+) -> Result<Json<PairingInfoDto>, ApiError> {
+    Ok(Json(pairing_dto(&state, None, None)?))
+}
+
+pub async fn pairing_code(
+    State(state): State<AppState>,
+    _local: LocalOnly,
+) -> Result<Json<PairingInfoDto>, ApiError> {
+    const TTL_SECS: i64 = 10 * 60;
+    // A new QR supersedes older unused ones, so only the code on screen works.
+    sqlx::query("DELETE FROM pairing_tokens WHERE used = 0")
+        .execute(&state.pool)
+        .await?;
+    let token = tokens::create_token(&state.pool, TTL_SECS)
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    let expires_at = (Utc::now() + chrono::Duration::seconds(TTL_SECS))
+        .to_rfc3339_opts(SecondsFormat::Secs, true);
+    Ok(Json(pairing_dto(&state, Some(token), Some(expires_at))?))
 }

@@ -37,6 +37,10 @@ pub fn build_router(state: AppState) -> Router {
             "/local/settings",
             get(api::local::get_settings).put(api::local::put_settings),
         )
+        .route(
+            "/local/pairing",
+            get(api::local::pairing_info).post(api::local::pairing_code),
+        )
         .route("/local/status", get(api::local::status))
         .with_state(state);
 
@@ -57,10 +61,11 @@ pub fn build_router(state: AppState) -> Router {
 pub async fn run_server(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     cfg.ensure_dirs()?;
     db::apply_defaults(&pool).await?;
-    ingest::scan_existing(&AppState::new(cfg.clone(), pool.clone())).await?;
 
     let state = AppState::new(cfg.clone(), pool);
-    let _watcher = watch::start(state.clone())?;
+    ingest::scan_existing(&state).await?;
+    // Keep the handle in the shared state so settings can re-target it later.
+    state.set_watcher(watch::start(state.clone())?);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], cfg.port));
     let listener = std::net::TcpListener::bind(addr)?;
