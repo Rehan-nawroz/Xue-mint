@@ -1,16 +1,24 @@
 # CI for Xue-Mint
-# Runs on every push/PR once this repo is pushed to GitHub.
 # Rule: do not commit or push without the user's explicit permission.
 
 name: CI
 
-on:
-  push:
-  pull_request:
+on: [push, pull_request]
 
 jobs:
+  schema:
+    name: Database schema — apply to a fresh database
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migration to a fresh SQLite database
+        run: |
+          which sqlite3 || (sudo apt-get update && sudo apt-get install -y sqlite3)
+          sqlite3 test.db < server/migrations/0001_init.sql
+          sqlite3 test.db ".tables"
+
   server:
-    name: Server (Rust) — build & test
+    name: Server (Rust) — build and test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,37 +26,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
-      # Applied against a fresh SQLite file as a smoke test of the schema.
-      - name: Apply migrations to a fresh SQLite database
-        shell: bash
-        run: |
-          cargo install sqlx-cli --no-default-features --features sqlite || true
-          cd server
-          sqlx database create --database-url "sqlite://test.db"
-          sqlx migrate run --database-url "sqlite://test.db"
-      # Server crate build/test activates automatically once it exists.
-      - name: Build & test server crate (skipped until the crate exists)
+      - name: Build and test server crate (activates once the crate exists)
         shell: bash
         run: |
           if [ -f server/Cargo.toml ]; then
             cd server && cargo build --locked && cargo test
           else
-            echo "server/Cargo.toml not present yet (Phase 1 task 1.1) — nothing to build."
+            echo "No server crate yet — nothing to build."
           fi
 
   web-and-shared:
-    name: Web + Shared (TypeScript) — lint & build
+    name: Web and Shared (TypeScript) — lint and build
     runs-on: ubuntu-latest
-    # Runs automatically as soon as the web project (web/package.json) exists.
-    if: ${{ hashFiles('web/package.json') != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Build shared package
-        run: |
-          cd shared && npm install && npm run build
-      - name: Lint & build web
-        run: |
-          cd web && npm install && npm run lint && npm run build
+      - name: Build shared package (activates once it exists)
+        if: hashFiles('shared/package.json') != ''
+        run: cd shared && npm install && npm run build
+      - name: Lint and build web (activates once it exists)
+        if: hashFiles('web/package.json') != ''
+        run: cd web && npm install && npm run lint && npm run build
