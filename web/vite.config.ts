@@ -7,6 +7,8 @@ export default defineConfig({
   publicDir: false,
   build: {
     outDir: 'dist',
+    // Keep hashed app assets out of /assets, which is the server's API namespace.
+    assetsDir: 'static',
     emptyOutDir: true,
     sourcemap: false,
   },
