@@ -1,1 +1,51 @@
+# Xue-Min
+# Build artifacts
+/target/
+**/target/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+
+# Rust
+Cargo.lock
+
+# SQLite databases (photos folder is deliberately NOT in the repo)
+*.db
+*.db-wal
+*.db-shm
+test.db
+
+# Capacitor / Android (generated + local)
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/build/
+mobile/android/local.properties
+*.keystore
+!debug.keystore
+mobile/android/app/*.jks
+
+# Secrets / signing
+keystore/
+signing/
+*.jks
+*.p12
+*.mobileprovision
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local test artifacts
+tmp/
+*.log
 /docs
+web/README.md
+desktop/README.md
+mobile/README.md
+assets/brand/README.md
+server/README.md
+shared/README.md

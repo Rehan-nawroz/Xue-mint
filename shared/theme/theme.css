@@ -1,0 +1,58 @@
+/* ============================================================
+   /shared/theme/theme.css — Web gallery theme (design tokens)
+   SINGLE THEME FILE for the desktop web gallery.
+   Brand colors come ONLY from /assets/brand (palette.md).
+   Light tokens here; dark tokens override below.
+   ============================================================ */
+
+:root {
+  /* Brand (from /assets/brand — do not hard-code elsewhere) */
+  --brand-primary: #3A6EA5;
+  --brand-primary-dark: #2C5480;
+  --brand-accent: #E8A33D;
+
+  /* Light surfaces */
+  --bg: #FAFAFA;
+  --surface: #FFFFFF;
+  --text: #1C1B1F;
+  --text-muted: #5F5E58;
+
+  /* States */
+  --danger: #B3261E;
+  --success: #2E6B3F;
+
+  /* Typography + spacing */
+  --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --date-header-size: 1rem;
+  --radius: 8px;
+
+  /* Grid */
+  --grid-gap: 4px;
+  --thumb-min: 120px;
+}
+
+/* Dark mode: follows OS preference */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand-primary: #6B9BD1;
+    --bg: #1C1B1F;
+    --surface: #2B2930;
+    --text: #ECEBE4;
+    --text-muted: #A5A29A;
+  }
+}
+
+/* Forced dark mode class (manual toggle) */
+[data-theme="dark"] {
+  --brand-primary: #6B9BD1;
+  --bg: #1C1B1F;
+  --surface: #2B2930;
+  --text: #ECEBE4;
+  --text-muted: #A5A29A;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+}
