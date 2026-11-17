@@ -1,0 +1,47 @@
+/* ============================================================
+   /mobile/theme/theme.css — Mobile app theme (design tokens)
+   SINGLE THEME FILE for the mobile app (React + Tailwind).
+   Brand colors come ONLY from /assets/brand (palette.md).
+   Tailwind consumes these CSS custom properties; token names
+   match /shared/theme/theme.css so both apps stay in sync.
+   ============================================================ */
+
+:root {
+  /* Brand (from /assets/brand — do not hard-code elsewhere) */
+  --brand-primary: #3A6EA5;
+  --brand-primary-dark: #2C5480;
+  --brand-accent: #E8A33D;
+
+  /* Light surfaces */
+  --bg: #FAFAFA;
+  --surface: #FFFFFF;
+  --text: #1C1B1F;
+  --text-muted: #5F5E58;
+
+  /* States */
+  --danger: #B3261E;
+  --success: #2E6B3F;
+
+  /* Mobile-specific */
+  --nav-height: 56px;        /* bottom navigation */
+  --status-bar-height: 28px; /* backup status bar */
+  --grid-gap: 2px;           /* Google Photos uses a tighter grid on mobile */
+  --thumb-min: 96px;
+}
+
+/* Dark mode: follows OS preference ( Capacitor WebView reports it ) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand-primary: #6B9BD1;
+    --bg: #1C1B1F;
+    --surface: #2B2930;
+    --text: #ECEBE4;
+    --text-muted: #A5A29A;
+  }
+}
+
+body {
+  font-family: system-ui, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
