@@ -216,10 +216,10 @@ pub async fn upload(
 
     // Finalize: verify the hash, move the temp file into the photos folder,
     // record the asset, generate the thumbnail. All on a blocking thread.
-    let cfg = state.cfg.clone();
+    let photos_dir = state.photos_dir();
     let finalize_hash = hash.clone();
     let finalize_result = tokio::task::spawn_blocking(move || {
-        finalize_upload(&cfg, &temp_path, &finalize_hash, filename)
+        finalize_upload(&photos_dir, &temp_path, &finalize_hash, filename)
     })
     .await
     .map_err(|error| ApiError::internal(error.to_string()))?;
@@ -263,7 +263,7 @@ pub async fn upload(
         }));
     }
 
-    let asset_path = state.cfg.photos_dir.join(&finalize_result.rel_path);
+    let asset_path = state.photos_dir().join(&finalize_result.rel_path);
     thumbs::generate(&state, &asset_path, &hash, is_video, 1).await;
 
     mark_upload_complete(&state.pool, &upload_id).await?;
@@ -288,7 +288,7 @@ struct FinalizedUpload {
 }
 
 fn finalize_upload(
-    cfg: &crate::config::Config,
+    photos_dir: &std::path::Path,
     temp_path: &std::path::Path,
     hash: &str,
     filename: Option<String>,
@@ -310,7 +310,7 @@ fn finalize_upload(
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_else(|| "bin".to_string());
     let rel_path = format!("{}/{hash}.{ext}", &hash[..2]);
-    let dest = cfg.photos_dir.join(&rel_path);
+    let dest = photos_dir.join(&rel_path);
 
     std::fs::create_dir_all(dest.parent().unwrap())?;
     if dest.exists() {
@@ -532,7 +532,7 @@ pub async fn original(
         .ok_or_else(|| ApiError::not_found("ASSET_NOT_FOUND", "No such asset."))?;
     let rel_path: String = asset.get("path");
     let ext = media::ext_of(std::path::Path::new(&rel_path));
-    let path = state.cfg.photos_dir.join(&rel_path);
+    let path = state.photos_dir().join(&rel_path);
     let file = tokio::fs::File::open(&path).await?;
     let stream = tokio_util::io::ReaderStream::new(file);
     Ok((
@@ -561,7 +561,7 @@ pub async fn delete_asset(
         .await?
         .unwrap_or_default();
     if behavior == "delete_file" {
-        let _ = std::fs::remove_file(state.cfg.photos_dir.join(&rel_path));
+        let _ = std::fs::remove_file(state.photos_dir().join(&rel_path));
         let _ = std::fs::remove_file(state.cfg.thumbs_dir().join(format!("{hash}.jpg")));
     }
 

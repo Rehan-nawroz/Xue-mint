@@ -94,7 +94,7 @@ pub async fn ingest_file(state: &AppState, path: &Path) -> anyhow::Result<()> {
 /// database. Called once at startup, before the live watcher takes over.
 pub async fn scan_existing(state: &AppState) -> anyhow::Result<()> {
     let mut files = Vec::new();
-    walk(&state.cfg.photos_dir, &mut files)?;
+    walk(&state.photos_dir(), &mut files)?;
     let mut count = 0usize;
     for path in files {
         let ext = media::ext_of(&path);
