@@ -13,7 +13,7 @@ use image::GenericImageView;
 use serde_json::{json, Value};
 use sqlx::Row;
 
-use xue_mint_server::{build_router, config::Config, db, serve_on, state::AppState, tokens};
+use xue_mint_server::{build_router, config::Config, db, serve_on, state::AppState, tokens, watch};
 
 fn test_config(base: &std::path::Path) -> Config {
     Config {
@@ -877,6 +877,8 @@ async fn local_endpoints_reject_requests_without_loopback_identity() {
     for (method, uri) in [
         ("GET", "/local/status"),
         ("GET", "/local/settings"),
+        ("GET", "/local/pairing"),
+        ("POST", "/local/pairing"),
         ("POST", "/local/session"),
     ] {
         let response = app
@@ -957,6 +959,7 @@ async fn settings_validate_persist_and_report_restart() {
     assert_eq!(saved["port"], 9000);
     assert_eq!(saved["deleteBehavior"], "delete_file");
     assert_eq!(saved["activePort"], active_port);
+    assert_eq!(saved["activePhotosFolder"], folder_text);
 
     let reloaded = http
         .get(format!("{base}/local/settings"))
@@ -968,6 +971,7 @@ async fn settings_validate_persist_and_report_restart() {
     assert_eq!(reloaded["port"], 9000);
     assert_eq!(reloaded["photosFolder"], folder_text);
     assert_eq!(reloaded["deleteBehavior"], "delete_file");
+    assert_eq!(reloaded["activePhotosFolder"], folder_text);
     assert_eq!(reloaded["restartRequired"], true);
 
     let stored_port = sqlx::query("SELECT value FROM settings WHERE key = 'port'")
@@ -1002,6 +1006,12 @@ async fn built_gallery_is_served_with_spa_fallback_and_api_precedence() {
         "<!doctype html><title>gallery-marker</title><div id=\"root\"></div>",
     )
     .unwrap();
+    std::fs::create_dir_all(web_dir.join("static")).unwrap();
+    std::fs::write(
+        web_dir.join("static/app.js"),
+        "console.log('gallery-script');",
+    )
+    .unwrap();
 
     let cfg = Config {
         web_dir: Some(web_dir),
@@ -1029,6 +1039,20 @@ async fn built_gallery_is_served_with_spa_fallback_and_api_precedence() {
             "{uri} must return the gallery entry point"
         );
     }
+
+    // Hashed app assets live under /static so they never collide with /assets API routes.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/static/app.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body_text(response).await.contains("gallery-script"));
 
     // Files outside the built gallery (the database, for example) are never served.
     let response = app
@@ -1184,4 +1208,175 @@ async fn delete_behavior_controls_whether_the_file_is_removed() {
         .unwrap()
         .get("n");
     assert_eq!(remaining, 0);
+}
+
+#[tokio::test]
+async fn pairing_code_contains_connection_details_and_is_single_use() {
+    let (base, _pool) = start_server().await;
+    let http = client();
+    let cookie = session_cookie(
+        &http
+            .post(format!("{base}/local/session"))
+            .send()
+            .await
+            .unwrap(),
+    );
+
+    let info = http
+        .get(format!("{base}/local/pairing"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(info.status().as_u16(), 200);
+    let info: Value = info.json().await.unwrap();
+    assert_eq!(info["version"], 1);
+    assert_eq!(info["token"], Value::Null);
+    assert!(
+        !info["addresses"].as_array().unwrap().is_empty(),
+        "pairing info must list at least one address"
+    );
+    let fingerprint = info["fingerprint"].as_str().unwrap();
+    assert_eq!(
+        fingerprint.split(':').count(),
+        32,
+        "fingerprint must be a SHA-256 hex digest"
+    );
+
+    let code = http
+        .post(format!("{base}/local/pairing"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(code.status().as_u16(), 200);
+    let code: Value = code.json().await.unwrap();
+    let token = code["token"].as_str().unwrap().to_string();
+    assert!(!token.is_empty());
+    assert!(code["expiresAt"].as_str().is_some());
+    assert_eq!(code["fingerprint"], info["fingerprint"]);
+    assert_eq!(code["port"], info["port"]);
+
+    let pairing = json!({
+        "token": token,
+        "devicePublicKey": BASE64.encode(b"pairing-code-device"),
+        "deviceName": "QR Test Phone"
+    });
+    let first = http
+        .post(format!("{base}/pair"))
+        .json(&pairing)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status().as_u16(), 200);
+    let first: Value = first.json().await.unwrap();
+    assert!(first["credential"].as_str().is_some());
+
+    let second = http
+        .post(format!("{base}/pair"))
+        .json(&pairing)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status().as_u16(), 401);
+    let second: Value = second.json().await.unwrap();
+    assert_eq!(second["code"], "PAIR_TOKEN_USED");
+}
+
+#[tokio::test]
+async fn photos_folder_setting_applies_live_and_retargets_watcher() {
+    let (base, pool, state) = start_server_state().await;
+    state.set_watcher(watch::start(state.clone()).unwrap());
+    let http = client();
+    let cookie = session_cookie(
+        &http
+            .post(format!("{base}/local/session"))
+            .send()
+            .await
+            .unwrap(),
+    );
+
+    let new_root = tempfile::tempdir().unwrap();
+    let new_folder = new_root.path().join("library");
+    let new_text = new_folder.to_string_lossy().into_owned();
+
+    let saved = put_settings(&http, &base, &cookie, json!({ "photosFolder": new_text })).await;
+    assert_eq!(saved.status().as_u16(), 200);
+    let saved: Value = saved.json().await.unwrap();
+    assert_eq!(saved["photosFolder"], new_text);
+    assert_eq!(saved["activePhotosFolder"], new_text);
+    assert_eq!(
+        saved["restartRequired"], false,
+        "a folder change must apply without a restart"
+    );
+
+    // A file dropped into the new folder is indexed by the re-targeted watcher.
+    std::fs::write(new_folder.join("retargeted.jpg"), test_jpeg()).unwrap();
+    let mut indexed = false;
+    for _ in 0..60 {
+        let count: i64 = sqlx::query("SELECT COUNT(*) AS n FROM assets WHERE filename = ?")
+            .bind("retargeted.jpg")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            .get("n");
+        if count == 1 {
+            indexed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(indexed, "watcher must index files from the new folder");
+}
+
+#[tokio::test]
+async fn new_pairing_code_supersedes_older_unused_code() {
+    let (base, _pool) = start_server().await;
+    let http = client();
+
+    let first: Value = http
+        .post(format!("{base}/local/pairing"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let second: Value = http
+        .post(format!("{base}/local/pairing"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_ne!(first["token"], second["token"]);
+
+    let old = json!({
+        "token": first["token"],
+        "devicePublicKey": BASE64.encode(b"superseded-device"),
+        "deviceName": "Old Code Phone"
+    });
+    let rejected = http
+        .post(format!("{base}/pair"))
+        .json(&old)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status().as_u16(), 401);
+    let rejected: Value = rejected.json().await.unwrap();
+    assert_eq!(rejected["code"], "PAIR_TOKEN_INVALID");
+
+    let fresh = json!({
+        "token": second["token"],
+        "devicePublicKey": BASE64.encode(b"newest-device"),
+        "deviceName": "New Code Phone"
+    });
+    let accepted = http
+        .post(format!("{base}/pair"))
+        .json(&fresh)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accepted.status().as_u16(), 200);
 }
