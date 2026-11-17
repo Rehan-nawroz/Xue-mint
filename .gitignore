@@ -1,4 +1,7 @@
 # Xue-Min
+# Generated desktop bundle resources
+/desktop/src-tauri/resources/web/
+
 # Build artifacts
 /target/
 **/target/
