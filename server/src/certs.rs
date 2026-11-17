@@ -3,6 +3,8 @@
 //! code, so a self-signed certificate is as trustworthy as a CA-signed one here.
 
 use crate::config::Config;
+use base64::Engine;
+use sha2::{Digest, Sha256};
 
 /// Returns the PEM certificate and key, generating and persisting them on first run.
 pub fn ensure_cert(cfg: &Config) -> anyhow::Result<(String, String)> {
@@ -31,4 +33,20 @@ pub fn ensure_cert(cfg: &Config) -> anyhow::Result<(String, String)> {
         cfg.data_dir.display()
     );
     Ok((cert_pem, key_pem))
+}
+
+/// SHA-256 fingerprint of the persisted certificate, formatted as colon-separated
+/// uppercase hex. Phones pin this value from the QR code.
+pub fn fingerprint(cert_pem: &str) -> anyhow::Result<String> {
+    let body: String = cert_pem
+        .lines()
+        .filter(|line| !line.starts_with("-----"))
+        .collect();
+    let der = base64::engine::general_purpose::STANDARD.decode(body.trim())?;
+    let digest = Sha256::digest(&der);
+    Ok(digest
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(":"))
 }
