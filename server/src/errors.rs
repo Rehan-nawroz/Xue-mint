@@ -122,3 +122,13 @@ impl From<axum::Error> for ApiError {
         ApiError::internal(error)
     }
 }
+
+impl ApiError {
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "FORBIDDEN",
+            message: message.into(),
+        }
+    }
+}

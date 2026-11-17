@@ -29,7 +29,7 @@ pub async fn list(
     _device: Device,
 ) -> Result<Json<DevicesResponse>, ApiError> {
     let rows = sqlx::query(
-        "SELECT id, name, paired_at, last_seen_at, revoked FROM devices ORDER BY paired_at",
+        "SELECT id, name, paired_at, last_seen_at, revoked FROM devices WHERE id != 'local' ORDER BY paired_at",
     )
     .fetch_all(&state.pool)
     .await?;
@@ -54,7 +54,7 @@ pub async fn revoke(
     _device: Device,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let result = sqlx::query("UPDATE devices SET revoked = 1 WHERE id = ?")
+    let result = sqlx::query("UPDATE devices SET revoked = 1 WHERE id = ? AND id != 'local'")
         .bind(&id)
         .execute(&state.pool)
         .await?;

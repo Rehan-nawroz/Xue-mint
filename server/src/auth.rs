@@ -1,4 +1,6 @@
-//! Device authentication: the `Authorization: Device <credential>` header.
+//! Device authentication: the `Authorization: Device <credential>` header, or the
+//! `xm_session` cookie (used by the gallery served from this PC, where image tags
+//! cannot send headers).
 //!
 //! The plaintext credential exists only on the phone; the server stores a SHA-256
 //! hash of it. Requests present the credential, the server hashes and looks it up.
@@ -13,6 +15,29 @@ use axum::http::header;
 use axum::http::request::Parts;
 use sqlx::Row;
 
+pub const SESSION_COOKIE: &str = "xm_session";
+
+/// Pulls the credential from the Authorization header, falling back to the cookie.
+fn credential_from_parts(parts: &Parts) -> Option<String> {
+    let from_header = parts
+        .headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|raw| raw.strip_prefix("Device "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if from_header.is_some() {
+        return from_header;
+    }
+
+    let cookies = parts.headers.get(header::COOKIE)?.to_str().ok()?;
+    cookies.split(';').find_map(|pair| {
+        let (name, value) = pair.trim().split_once('=')?;
+        (name == SESSION_COOKIE && !value.is_empty()).then(|| value.to_string())
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct Device {
     pub id: String,
@@ -26,17 +51,8 @@ impl FromRequestParts<AppState> for Device {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let raw = parts
-            .headers
-            .get(header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .ok_or_else(ApiError::auth_required)?;
-
-        let credential = raw
-            .strip_prefix("Device ")
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(ApiError::auth_required)?;
+        let credential = credential_from_parts(parts).ok_or_else(ApiError::auth_required)?;
+        let credential = credential.as_str();
 
         let credential_hash = sha256_hex(credential.as_bytes());
         let row = sqlx::query("SELECT id, name, revoked FROM devices WHERE credential_hash = ?")

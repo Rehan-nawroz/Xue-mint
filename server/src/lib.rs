@@ -21,7 +21,8 @@ use sqlx::SqlitePool;
 
 /// Builds the application router. Used by both the real server and the tests.
 pub fn build_router(state: AppState) -> Router {
-    Router::new()
+    let web_dir = state.cfg.web_dir.clone();
+    let router = Router::new()
         .route("/pair", post(api::pair::pair))
         .route("/assets/check", post(api::assets::check))
         .route("/assets/upload/{hash}", put(api::assets::upload))
@@ -31,7 +32,25 @@ pub fn build_router(state: AppState) -> Router {
         .route("/assets/{id}", delete(api::assets::delete_asset))
         .route("/devices", get(api::devices::list))
         .route("/devices/{id}", delete(api::devices::revoke))
-        .with_state(state)
+        .route("/local/session", post(api::local::session))
+        .route(
+            "/local/settings",
+            get(api::local::get_settings).put(api::local::put_settings),
+        )
+        .route("/local/status", get(api::local::status))
+        .with_state(state);
+
+    // The built gallery is served at the site root when its files exist.
+    match web_dir.filter(|dir| dir.join("index.html").is_file()) {
+        Some(dir) => {
+            let index = dir.join("index.html");
+            router.fallback_service(
+                tower_http::services::ServeDir::new(dir)
+                    .fallback(tower_http::services::ServeFile::new(index)),
+            )
+        }
+        None => router,
+    }
 }
 
 /// Full server bootstrap: directories, defaults, watcher, TLS, serve forever.
@@ -60,7 +79,7 @@ pub async fn serve_on(state: AppState, listener: std::net::TcpListener) -> anyho
     )
     .await?;
     axum_server::from_tcp_rustls(listener, tls_config)
-        .serve(build_router(state).into_make_service())
+        .serve(build_router(state).into_make_service_with_connect_info::<std::net::SocketAddr>())
         .await?;
     Ok(())
 }

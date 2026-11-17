@@ -10,9 +10,16 @@ pub struct Config {
     pub photos_dir: PathBuf,
     /// Folder for server-owned data: SQLite database, thumbnails, TLS certificate.
     pub data_dir: PathBuf,
+    /// Built gallery files (index.html and assets) served at the site root, if present.
+    pub web_dir: Option<PathBuf>,
 }
 
 impl Config {
+    /// File holding the credential the gallery on this PC uses (never leaves this machine).
+    pub fn local_session_file(&self) -> PathBuf {
+        self.data_dir.join("local-session.key")
+    }
+
     pub fn thumbs_dir(&self) -> PathBuf {
         self.data_dir.join("thumbs")
     }

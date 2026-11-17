@@ -6,7 +6,7 @@ use sqlx::{Row, SqlitePool};
 
 /// Opens the SQLite pool and applies all migrations.
 pub async fn open(cfg: &Config) -> anyhow::Result<SqlitePool> {
-    cfg.ensure_dirs()?;
+    std::fs::create_dir_all(&cfg.data_dir)?;
     let options = SqliteConnectOptions::new()
         .filename(cfg.db_file())
         .create_if_missing(true)
