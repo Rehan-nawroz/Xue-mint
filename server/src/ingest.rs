@@ -50,7 +50,11 @@ pub async fn ingest_file(state: &AppState, path: &Path) -> anyhow::Result<()> {
     let (width, height) = if is_video {
         (None, None)
     } else {
-        match image::ImageReader::open(path).ok().and_then(|r| r.into_dimensions().ok()) {
+        match image::ImageReader::open(path)
+            .ok()
+            .and_then(|r| r.into_dimensions().ok())
+        {
+            Some((w, h)) if (5..=8).contains(&orientation) => (Some(h as i64), Some(w as i64)),
             Some((w, h)) => (Some(w as i64), Some(h as i64)),
             None => (None, None),
         }

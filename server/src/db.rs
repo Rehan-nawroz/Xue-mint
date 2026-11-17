@@ -23,9 +23,11 @@ pub async fn open(cfg: &Config) -> anyhow::Result<SqlitePool> {
 
 /// Inserts default settings rows (existing values are never overwritten).
 pub async fn apply_defaults(pool: &SqlitePool) -> anyhow::Result<()> {
-    sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('delete_behavior', 'index_only')")
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES ('delete_behavior', 'index_only')",
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

@@ -42,7 +42,9 @@ pub fn ext_of(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-pub const VIDEO_EXTS: [&str; 10] = ["mp4", "mov", "mkv", "avi", "webm", "m4v", "3gp", "mpg", "mpeg", "wmv"];
+pub const VIDEO_EXTS: [&str; 10] = [
+    "mp4", "mov", "mkv", "avi", "webm", "m4v", "3gp", "mpg", "mpeg", "wmv",
+];
 
 /// Extensions the folder watcher indexes automatically.
 pub const WATCHED_EXTS: [&str; 26] = [

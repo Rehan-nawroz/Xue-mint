@@ -54,8 +54,11 @@ pub async fn serve_on(state: AppState, listener: std::net::TcpListener) -> anyho
     // Install the ring crypto provider once; the process default is used by rustls.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let (cert_pem, key_pem) = certs::ensure_cert(&state.cfg)?;
-    let tls_config =
-        axum_server::tls_rustls::RustlsConfig::from_pem(cert_pem.into_bytes(), key_pem.into_bytes()).await?;
+    let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem(
+        cert_pem.into_bytes(),
+        key_pem.into_bytes(),
+    )
+    .await?;
     axum_server::from_tcp_rustls(listener, tls_config)
         .serve(build_router(state).into_make_service())
         .await?;

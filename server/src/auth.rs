@@ -22,7 +22,10 @@ pub struct Device {
 impl FromRequestParts<AppState> for Device {
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let raw = parts
             .headers
             .get(header::AUTHORIZATION)

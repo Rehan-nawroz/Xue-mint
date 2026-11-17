@@ -6,7 +6,6 @@
 //! HEIC and anything else we cannot decode: a neutral placeholder JPEG so the
 //! gallery still shows a tile; native HEIC decoding is a hardening-phase upgrade.
 
-use crate::media;
 use crate::state::AppState;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -22,7 +21,9 @@ pub async fn generate(state: &AppState, src: &Path, hash: &str, is_video: bool, 
     }
     let src = src.to_path_buf();
     let is_video = is_video;
-    let result = tokio::task::spawn_blocking(move || make_thumbnail(&src, &out, is_video, orientation)).await;
+    let result =
+        tokio::task::spawn_blocking(move || make_thumbnail(&src, &out, is_video, orientation))
+            .await;
     match result {
         Ok(Ok(())) => {}
         Ok(Err(error)) => println!("Thumbnail generation failed for {hash}: {error}"),
@@ -30,7 +31,12 @@ pub async fn generate(state: &AppState, src: &Path, hash: &str, is_video: bool, 
     }
 }
 
-fn make_thumbnail(src: &Path, out: &PathBuf, is_video: bool, orientation: u32) -> std::io::Result<()> {
+fn make_thumbnail(
+    src: &Path,
+    out: &PathBuf,
+    is_video: bool,
+    orientation: u32,
+) -> std::io::Result<()> {
     if is_video {
         if ffmpeg_frame(src, out) {
             return Ok(());

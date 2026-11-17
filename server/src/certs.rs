@@ -26,6 +26,9 @@ pub fn ensure_cert(cfg: &Config) -> anyhow::Result<(String, String)> {
 
     std::fs::write(&cert_path, &cert_pem)?;
     std::fs::write(&key_path, &key_pem)?;
-    println!("Generated new self-signed TLS certificate in {}", cfg.data_dir.display());
+    println!(
+        "Generated new self-signed TLS certificate in {}",
+        cfg.data_dir.display()
+    );
     Ok((cert_pem, key_pem))
 }

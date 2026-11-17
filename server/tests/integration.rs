@@ -5,6 +5,7 @@ use std::io::Write;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use image::GenericImageView;
 use serde_json::{json, Value};
 use sqlx::Row;
 
@@ -28,6 +29,68 @@ fn test_jpeg() -> Vec<u8> {
     let mut cursor = std::io::Cursor::new(&mut bytes);
     img.write_to(&mut cursor, image::ImageFormat::Jpeg).unwrap();
     bytes
+}
+
+fn exif_jpeg() -> Vec<u8> {
+    fn put_u16(buf: &mut [u8], offset: usize, value: u16) {
+        buf[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    fn put_u32(buf: &mut [u8], offset: usize, value: u32) {
+        buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    fn entry(buf: &mut [u8], offset: usize, tag: u16, kind: u16, count: u32, value: u32) {
+        put_u16(buf, offset, tag);
+        put_u16(buf, offset + 2, kind);
+        put_u32(buf, offset + 4, count);
+        put_u32(buf, offset + 8, value);
+    }
+
+    // Little-endian TIFF with orientation, DateTimeOriginal, and south/west GPS.
+    let mut tiff = vec![0u8; 190];
+    tiff[0..2].copy_from_slice(b"II");
+    put_u16(&mut tiff, 2, 42);
+    put_u32(&mut tiff, 4, 8);
+
+    put_u16(&mut tiff, 8, 3);
+    entry(&mut tiff, 10, 0x0112, 3, 1, 6); // Orientation = rotate 90° clockwise
+    entry(&mut tiff, 22, 0x8769, 4, 1, 50); // Exif IFD pointer
+    entry(&mut tiff, 34, 0x8825, 4, 1, 88); // GPS IFD pointer
+    put_u32(&mut tiff, 46, 0);
+
+    put_u16(&mut tiff, 50, 1);
+    entry(&mut tiff, 52, 0x9003, 2, 20, 68); // DateTimeOriginal
+    put_u32(&mut tiff, 64, 0);
+    tiff[68..88].copy_from_slice(b"2024:01:15 10:30:00\0");
+
+    put_u16(&mut tiff, 88, 4);
+    entry(&mut tiff, 90, 1, 2, 2, u32::from_le_bytes(*b"S\0\0\0")); // GPSLatitudeRef
+    entry(&mut tiff, 102, 2, 5, 3, 142); // GPSLatitude rationals
+    entry(&mut tiff, 114, 3, 2, 2, u32::from_le_bytes(*b"W\0\0\0")); // GPSLongitudeRef
+    entry(&mut tiff, 126, 4, 5, 3, 166); // GPSLongitude rationals
+    put_u32(&mut tiff, 138, 0);
+
+    for (offset, numerator, denominator) in [
+        (142, 37, 1),
+        (150, 30, 1),
+        (158, 0, 1), // 37°30'00" S
+        (166, 122, 1),
+        (174, 15, 1),
+        (182, 0, 1), // 122°15'00" W
+    ] {
+        put_u32(&mut tiff, offset, numerator);
+        put_u32(&mut tiff, offset + 4, denominator);
+    }
+    let mut payload = b"Exif\0\0".to_vec();
+    payload.extend_from_slice(&tiff);
+    let segment_len = (payload.len() + 2) as u16;
+    let jpeg = test_jpeg();
+    let mut out = Vec::with_capacity(jpeg.len() + payload.len() + 4);
+    out.extend_from_slice(&jpeg[..2]);
+    out.extend_from_slice(&[0xff, 0xe1]);
+    out.extend_from_slice(&segment_len.to_be_bytes());
+    out.extend_from_slice(&payload);
+    out.extend_from_slice(&jpeg[2..]);
+    out
 }
 
 async fn start_server() -> (String, sqlx::SqlitePool) {
@@ -90,7 +153,11 @@ async fn full_pair_upload_browse_revoke_flow() {
         .unwrap();
     let status = response.status();
     let body_text = response.text().await.unwrap_or_default();
-    assert_eq!(status.as_u16(), 200, "pair should succeed; body: {body_text}");
+    assert_eq!(
+        status.as_u16(),
+        200,
+        "pair should succeed; body: {body_text}"
+    );
     let paired: Value = serde_json::from_str(&body_text).unwrap();
     let device_id = paired["deviceId"].as_str().unwrap().to_string();
     let credential = paired["credential"].as_str().unwrap().to_string();
@@ -110,7 +177,10 @@ async fn full_pair_upload_browse_revoke_flow() {
         .await
         .unwrap();
     assert_eq!(reused.status().as_u16(), 401);
-    assert_eq!(reused.json::<Value>().await.unwrap()["code"], "PAIR_TOKEN_USED");
+    assert_eq!(
+        reused.json::<Value>().await.unwrap()["code"],
+        "PAIR_TOKEN_USED"
+    );
 
     // --- check: hash missing ---
     let bytes = test_jpeg();
@@ -192,7 +262,10 @@ async fn full_pair_upload_browse_revoke_flow() {
         .await
         .unwrap();
     assert_eq!(response.status().as_u16(), 200);
-    assert!(response.headers()["content-type"].to_str().unwrap().starts_with("image/jpeg"));
+    assert!(response.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("image/jpeg"));
     assert!(!response.bytes().await.unwrap().is_empty());
 
     // --- original matches uploaded bytes ---
@@ -214,7 +287,11 @@ async fn full_pair_upload_browse_revoke_flow() {
         .unwrap();
     let devices: Value = response.json().await.unwrap();
     let listed = devices["devices"].as_array().unwrap();
-    assert_eq!(listed.len(), 2, "two paired devices expected (reuse-check pairing counts too)");
+    assert_eq!(
+        listed.len(),
+        2,
+        "two paired devices expected (reuse-check pairing counts too)"
+    );
     assert!(listed.iter().any(|d| d["id"] == device_id));
     assert!(listed.iter().any(|d| d["name"] == "Test Phone"));
 
@@ -236,7 +313,10 @@ async fn full_pair_upload_browse_revoke_flow() {
         .await
         .unwrap();
     assert_eq!(response.status().as_u16(), 401);
-    assert_eq!(response.json::<Value>().await.unwrap()["code"], "DEVICE_REVOKED");
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["code"],
+        "DEVICE_REVOKED"
+    );
 }
 
 #[tokio::test]
@@ -244,13 +324,12 @@ async fn unauthenticated_request_is_rejected() {
     let (base, _pool) = start_server().await;
     let http = client();
 
-    let response = http
-        .get(format!("{base}/assets"))
-        .send()
-        .await
-        .unwrap();
+    let response = http.get(format!("{base}/assets")).send().await.unwrap();
     assert_eq!(response.status().as_u16(), 401);
-    assert_eq!(response.json::<Value>().await.unwrap()["code"], "AUTH_REQUIRED");
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["code"],
+        "AUTH_REQUIRED"
+    );
 }
 
 #[tokio::test]
@@ -360,7 +439,11 @@ async fn timeline_cursor_pagination_and_delete() {
             image::Rgb([250, r, 200 - r]),
         ));
         let mut bytes = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg).unwrap();
+        img.write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Jpeg,
+        )
+        .unwrap();
         let hash = xue_mint_server::media::hash_bytes(&bytes);
         let response = http
             .put(format!("{base}/assets/upload/{hash}?final=1"))
@@ -398,7 +481,10 @@ async fn timeline_cursor_pagination_and_delete() {
         .await
         .unwrap();
     assert_eq!(page2["items"].as_array().unwrap().len(), 1);
-    assert_ne!(page2["items"][0]["id"], ids[0], "pages must not repeat items");
+    assert_ne!(
+        page2["items"][0]["id"], ids[0],
+        "pages must not repeat items"
+    );
     let cursor2 = page2["nextCursor"].as_str().unwrap().to_string();
 
     let page3: Value = http
@@ -428,7 +514,11 @@ async fn timeline_cursor_pagination_and_delete() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(count.get::<i64, _>("n"), 2, "index row removed, others kept");
+    assert_eq!(
+        count.get::<i64, _>("n"),
+        2,
+        "index row removed, others kept"
+    );
 
     // Deleted asset endpoints answer 404 afterwards.
     let response = http
@@ -453,7 +543,10 @@ async fn watcher_indexes_files_dropped_into_photos_folder() {
     let bytes = test_jpeg();
     let hash = xue_mint_server::media::hash_bytes(&bytes);
     let path = state.cfg.photos_dir.join("dropped-live.jpg");
-    std::fs::File::create(&path).unwrap().write_all(&bytes).unwrap();
+    std::fs::File::create(&path)
+        .unwrap()
+        .write_all(&bytes)
+        .unwrap();
 
     // The watcher reacts within a couple of seconds; poll the database.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -486,9 +579,14 @@ async fn ingest_indexes_dropped_file() {
     let bytes = test_jpeg();
     let hash = xue_mint_server::media::hash_bytes(&bytes);
     let file_path = state.cfg.photos_dir.join("dropped.jpg");
-    std::fs::File::create(&file_path).unwrap().write_all(&bytes).unwrap();
+    std::fs::File::create(&file_path)
+        .unwrap()
+        .write_all(&bytes)
+        .unwrap();
 
-    xue_mint_server::ingest::ingest_file(&state, &file_path).await.unwrap();
+    xue_mint_server::ingest::ingest_file(&state, &file_path)
+        .await
+        .unwrap();
 
     let count = sqlx::query("SELECT COUNT(*) AS n FROM assets")
         .fetch_one(&state.pool)
@@ -498,12 +596,112 @@ async fn ingest_indexes_dropped_file() {
     assert!(state.cfg.thumbs_dir().join(format!("{hash}.jpg")).exists());
 
     // Ingesting the same file again must not create a second row.
-    xue_mint_server::ingest::ingest_file(&state, &file_path).await.unwrap();
+    xue_mint_server::ingest::ingest_file(&state, &file_path)
+        .await
+        .unwrap();
     let count = sqlx::query("SELECT COUNT(*) AS n FROM assets")
         .fetch_one(&state.pool)
         .await
         .unwrap();
     assert_eq!(count.get::<i64, _>("n"), 1);
+}
+
+#[tokio::test]
+async fn exif_date_gps_and_orientation_are_extracted() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = test_config(dir.path());
+    let pool = db::open(&cfg).await.unwrap();
+    db::apply_defaults(&pool).await.unwrap();
+    let state = AppState::new(cfg, pool);
+
+    let path = state.cfg.photos_dir.join("with-exif.jpg");
+    std::fs::write(&path, exif_jpeg()).unwrap();
+
+    let meta = xue_mint_server::media::exif::read(&path)
+        .expect("EXIF reader should parse generated EXIF JPEG");
+    assert_eq!(meta.taken_at.as_deref(), Some("2024-01-15T10:30:00"));
+    assert_eq!(meta.gps.as_deref(), Some("-37.500000,-122.250000"));
+    assert_eq!(meta.orientation, 6);
+
+    xue_mint_server::ingest::ingest_file(&state, &path)
+        .await
+        .unwrap();
+    let row = sqlx::query("SELECT taken_at, gps, width, height FROM assets")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        row.get::<Option<String>, _>("taken_at").as_deref(),
+        Some("2024-01-15T10:30:00")
+    );
+    assert_eq!(
+        row.get::<Option<String>, _>("gps").as_deref(),
+        Some("-37.500000,-122.250000")
+    );
+    assert_eq!(row.get::<Option<i64>, _>("width"), Some(48));
+    assert_eq!(row.get::<Option<i64>, _>("height"), Some(64));
+}
+
+#[tokio::test]
+async fn video_thumbnail_uses_ffmpeg_first_frame() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = test_config(dir.path());
+    let pool = db::open(&cfg).await.unwrap();
+    db::apply_defaults(&pool).await.unwrap();
+    let state = AppState::new(cfg, pool);
+
+    let video = state.cfg.photos_dir.join("generated.mp4");
+    let generated = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x48:d=1",
+            "-frames:v",
+            "1",
+            "-c:v",
+            "mpeg4",
+        ])
+        .arg(&video)
+        .output();
+    let generated = match generated {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => panic!(
+            "ffmpeg fixture generation failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("ffmpeg not installed; skipping real video thumbnail test");
+            return;
+        }
+        Err(error) => panic!("cannot run ffmpeg: {error}"),
+    };
+    let _ = generated;
+    assert!(std::fs::metadata(&video).unwrap().len() > 0);
+
+    xue_mint_server::ingest::ingest_file(&state, &video)
+        .await
+        .unwrap();
+    let row = sqlx::query("SELECT hash, type FROM assets")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>("type"), "video");
+    let hash: String = row.get("hash");
+    let thumb_path = state.cfg.thumbs_dir().join(format!("{hash}.jpg"));
+    let thumb = image::ImageReader::open(thumb_path)
+        .unwrap()
+        .decode()
+        .unwrap();
+    assert_eq!(thumb.dimensions(), (400, 300));
+    let center = thumb.to_rgb8().get_pixel(200, 150).0;
+    assert!(
+        center[0] > 180 && center[1] < 80 && center[2] < 80,
+        "expected red video frame, got {center:?}"
+    );
 }
 
 #[tokio::test]
@@ -518,7 +716,9 @@ async fn undecodable_photo_gets_placeholder_thumbnail() {
     let file_path = state.cfg.photos_dir.join("broken.heic");
     std::fs::write(&file_path, [0u8, 1, 2, 3, 4, 5]).unwrap();
 
-    xue_mint_server::ingest::ingest_file(&state, &file_path).await.unwrap();
+    xue_mint_server::ingest::ingest_file(&state, &file_path)
+        .await
+        .unwrap();
 
     let row = sqlx::query("SELECT hash FROM assets")
         .fetch_one(&state.pool)

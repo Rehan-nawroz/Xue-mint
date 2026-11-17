@@ -28,9 +28,11 @@ pub async fn list(
     State(state): State<AppState>,
     _device: Device,
 ) -> Result<Json<DevicesResponse>, ApiError> {
-    let rows = sqlx::query("SELECT id, name, paired_at, last_seen_at, revoked FROM devices ORDER BY paired_at")
-        .fetch_all(&state.pool)
-        .await?;
+    let rows = sqlx::query(
+        "SELECT id, name, paired_at, last_seen_at, revoked FROM devices ORDER BY paired_at",
+    )
+    .fetch_all(&state.pool)
+    .await?;
 
     let devices = rows
         .iter()

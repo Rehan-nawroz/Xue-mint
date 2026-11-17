@@ -40,7 +40,9 @@ async fn main() -> Result<()> {
                     .to_string();
             }
             "--mint-token" => mint_token = true,
-            other => anyhow::bail!("Unknown argument: {other}. Use --port, --photos-dir, --data-dir or --mint-token."),
+            other => anyhow::bail!(
+                "Unknown argument: {other}. Use --port, --photos-dir, --data-dir or --mint-token."
+            ),
         }
         index += 1;
     }

@@ -15,7 +15,11 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn bad_request(message: impl Into<String>) -> Self {
-        Self { status: StatusCode::BAD_REQUEST, code: "BAD_REQUEST", message: message.into() }
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "BAD_REQUEST",
+            message: message.into(),
+        }
     }
 
     pub fn auth_required() -> Self {
@@ -35,7 +39,11 @@ impl ApiError {
     }
 
     pub fn not_found(code: &'static str, message: impl Into<String>) -> Self {
-        Self { status: StatusCode::NOT_FOUND, code, message: message.into() }
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code,
+            message: message.into(),
+        }
     }
 
     pub fn pair_token_invalid() -> Self {
@@ -89,7 +97,11 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(json!({ "code": self.code, "message": self.message }))).into_response()
+        (
+            self.status,
+            Json(json!({ "code": self.code, "message": self.message })),
+        )
+            .into_response()
     }
 }
 

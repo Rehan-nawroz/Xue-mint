@@ -97,7 +97,9 @@ pub async fn upload(
 ) -> Result<Json<UploadResponse>, ApiError> {
     let hash = hash.to_lowercase();
     if !media::is_valid_hash(&hash) {
-        return Err(ApiError::bad_request("hash must be a 64-character BLAKE3 hex digest"));
+        return Err(ApiError::bad_request(
+            "hash must be a 64-character BLAKE3 hex digest",
+        ));
     }
 
     let offset: i64 = header_i64(&headers, "offset").unwrap_or(0);
@@ -108,7 +110,11 @@ pub async fn upload(
     let filename: Option<String> = headers
         .get("x-filename")
         .and_then(|value| value.to_str().ok())
-        .map(|value| percent_encoding::percent_decode_str(value).decode_utf8_lossy().into_owned());
+        .map(|value| {
+            percent_encoding::percent_decode_str(value)
+                .decode_utf8_lossy()
+                .into_owned()
+        });
 
     // Content already stored? Drain the body (the client may still be sending)
     // and answer "duplicate".
@@ -116,7 +122,11 @@ pub async fn upload(
         while let Some(frame) = body.frame().await {
             let _ = frame.map_err(ApiError::internal)?;
         }
-        return Ok(Json(UploadResponse { stored: true, duplicate: Some(true), offset: None }));
+        return Ok(Json(UploadResponse {
+            stored: true,
+            duplicate: Some(true),
+            offset: None,
+        }));
     }
 
     // Find or create the resumable upload session.
@@ -170,9 +180,10 @@ pub async fn upload(
 
     let mut written: i64 = 0;
     while let Some(frame) = body.frame().await {
-        let chunk = frame.map_err(ApiError::internal)?.into_data().map_err(|_| {
-            ApiError::bad_request("Unexpected non-data frame in upload body")
-        })?;
+        let chunk = frame
+            .map_err(ApiError::internal)?
+            .into_data()
+            .map_err(|_| ApiError::bad_request("Unexpected non-data frame in upload body"))?;
         file.write_all(&chunk).await?;
         written += chunk.len() as i64;
     }
@@ -196,7 +207,11 @@ pub async fn upload(
         || (total > 0 && new_offset >= total);
 
     if !is_final {
-        return Ok(Json(UploadResponse { stored: false, duplicate: None, offset: Some(new_offset) }));
+        return Ok(Json(UploadResponse {
+            stored: false,
+            duplicate: None,
+            offset: Some(new_offset),
+        }));
     }
 
     // Finalize: verify the hash, move the temp file into the photos folder,
@@ -212,7 +227,11 @@ pub async fn upload(
 
     if finalize_result.duplicate {
         mark_upload_complete(&state.pool, &upload_id).await?;
-        return Ok(Json(UploadResponse { stored: true, duplicate: Some(true), offset: None }));
+        return Ok(Json(UploadResponse {
+            stored: true,
+            duplicate: Some(true),
+            offset: None,
+        }));
     }
 
     let is_video = media::is_video_ext(&finalize_result.ext);
@@ -237,7 +256,11 @@ pub async fn upload(
         // A concurrent ingest indexed the same hash first; drop our duplicate file.
         let _ = std::fs::remove_file(&finalize_result.dest);
         mark_upload_complete(&state.pool, &upload_id).await?;
-        return Ok(Json(UploadResponse { stored: true, duplicate: Some(true), offset: None }));
+        return Ok(Json(UploadResponse {
+            stored: true,
+            duplicate: Some(true),
+            offset: None,
+        }));
     }
 
     let asset_path = state.cfg.photos_dir.join(&finalize_result.rel_path);
@@ -245,7 +268,11 @@ pub async fn upload(
 
     mark_upload_complete(&state.pool, &upload_id).await?;
     println!("Stored {hash} ({} bytes)", finalize_result.size);
-    Ok(Json(UploadResponse { stored: true, duplicate: Some(false), offset: None }))
+    Ok(Json(UploadResponse {
+        stored: true,
+        duplicate: Some(false),
+        offset: None,
+    }))
 }
 
 /// Runs on a blocking thread: hash-verify, move into the photos folder.
@@ -282,7 +309,6 @@ fn finalize_upload(
         .and_then(|name| std::path::Path::new(name).extension())
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_else(|| "bin".to_string());
-    let disk_name = format!("{hash}.{ext}");
     let rel_path = format!("{}/{hash}.{ext}", &hash[..2]);
     let dest = cfg.photos_dir.join(&rel_path);
 
@@ -307,7 +333,10 @@ fn finalize_upload(
     let (width, height) = if media::is_video_ext(&ext) {
         (None, None)
     } else {
-        match image::ImageReader::open(&dest).ok().and_then(|r| r.into_dimensions().ok()) {
+        match image::ImageReader::open(&dest)
+            .ok()
+            .and_then(|r| r.into_dimensions().ok())
+        {
             Some((w, h)) => (Some(w as i64), Some(h as i64)),
             None => (None, None),
         }
@@ -401,23 +430,16 @@ pub async fn timeline(
     let limit = params.limit.unwrap_or(200).clamp(1, 500);
 
     let cursor = decode_cursor(params.cursor.as_deref())?;
-    let select = "SELECT id, hash, filename, type, size, taken_at, gps, width, height, added_at FROM assets";
+    let select =
+        "SELECT id, hash, filename, type, size, taken_at, gps, width, height, added_at FROM assets";
 
-    let (sql, cursor_binds) = match &cursor {
-        Some(_) => (
-            format!(
-                "{select} WHERE (COALESCE(taken_at, added_at) < ?1 \
-                 OR (COALESCE(taken_at, added_at) = ?1 AND id < ?2)) \
-                 ORDER BY COALESCE(taken_at, added_at) DESC, id DESC LIMIT ?3"
-            ),
-            true,
+    let sql = match &cursor {
+        Some(_) => format!(
+            "{select} WHERE (COALESCE(taken_at, added_at) < ?1 \
+             OR (COALESCE(taken_at, added_at) = ?1 AND id < ?2)) \
+             ORDER BY COALESCE(taken_at, added_at) DESC, id DESC LIMIT ?3"
         ),
-        None => (
-            format!(
-                "{select} ORDER BY COALESCE(taken_at, added_at) DESC, id DESC LIMIT ?1"
-            ),
-            false,
-        ),
+        None => format!("{select} ORDER BY COALESCE(taken_at, added_at) DESC, id DESC LIMIT ?1"),
     };
 
     let mut query = sqlx::query(&sql);
@@ -451,7 +473,10 @@ pub async fn timeline(
     let next_cursor = if has_next {
         items.last().map(|last| {
             let cursor = Cursor {
-                k: last.taken_at.clone().unwrap_or_else(|| last.added_at.clone()),
+                k: last
+                    .taken_at
+                    .clone()
+                    .unwrap_or_else(|| last.added_at.clone()),
                 i: last.id.clone(),
             };
             URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cursor).unwrap_or_default())
@@ -468,7 +493,8 @@ fn decode_cursor(raw: Option<&str>) -> Result<Option<Cursor>, ApiError> {
     let bytes = URL_SAFE_NO_PAD
         .decode(raw.trim())
         .map_err(|_| ApiError::bad_request("Invalid cursor"))?;
-    let cursor: Cursor = serde_json::from_slice(&bytes).map_err(|_| ApiError::bad_request("Invalid cursor"))?;
+    let cursor: Cursor =
+        serde_json::from_slice(&bytes).map_err(|_| ApiError::bad_request("Invalid cursor"))?;
     Ok(Some(cursor))
 }
 
@@ -481,13 +507,16 @@ pub async fn thumb(
     _device: Device,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let asset = asset_row_by_id(&state.pool, &id).await?.ok_or_else(|| {
-        ApiError::not_found("ASSET_NOT_FOUND", "No such asset.")
-    })?;
+    let asset = asset_row_by_id(&state.pool, &id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("ASSET_NOT_FOUND", "No such asset."))?;
     let hash: String = asset.get("hash");
     let path = state.cfg.thumbs_dir().join(format!("{hash}.jpg"));
     if !path.exists() {
-        return Err(ApiError::not_found("ASSET_NOT_FOUND", "Thumbnail not ready."));
+        return Err(ApiError::not_found(
+            "ASSET_NOT_FOUND",
+            "Thumbnail not ready.",
+        ));
     }
     let bytes = tokio::fs::read(&path).await?;
     Ok(([(header::CONTENT_TYPE, "image/jpeg")], bytes).into_response())
@@ -498,9 +527,9 @@ pub async fn original(
     _device: Device,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let asset = asset_row_by_id(&state.pool, &id).await?.ok_or_else(|| {
-        ApiError::not_found("ASSET_NOT_FOUND", "No such asset.")
-    })?;
+    let asset = asset_row_by_id(&state.pool, &id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("ASSET_NOT_FOUND", "No such asset."))?;
     let rel_path: String = asset.get("path");
     let ext = media::ext_of(std::path::Path::new(&rel_path));
     let path = state.cfg.photos_dir.join(&rel_path);
@@ -522,13 +551,15 @@ pub async fn delete_asset(
     _device: Device,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let asset = asset_row_by_id(&state.pool, &id).await?.ok_or_else(|| {
-        ApiError::not_found("ASSET_NOT_FOUND", "No such asset.")
-    })?;
+    let asset = asset_row_by_id(&state.pool, &id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("ASSET_NOT_FOUND", "No such asset."))?;
     let hash: String = asset.get("hash");
     let rel_path: String = asset.get("path");
 
-    let behavior = get_setting(&state.pool, "delete_behavior").await?.unwrap_or_default();
+    let behavior = get_setting(&state.pool, "delete_behavior")
+        .await?
+        .unwrap_or_default();
     if behavior == "delete_file" {
         let _ = std::fs::remove_file(state.cfg.photos_dir.join(&rel_path));
         let _ = std::fs::remove_file(state.cfg.thumbs_dir().join(format!("{hash}.jpg")));
@@ -559,8 +590,10 @@ async fn asset_row_by_id(
     pool: &sqlx::SqlitePool,
     id: &str,
 ) -> Result<Option<sqlx::sqlite::SqliteRow>, ApiError> {
-    Ok(sqlx::query("SELECT id, hash, path FROM assets WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?)
+    Ok(
+        sqlx::query("SELECT id, hash, path FROM assets WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?,
+    )
 }

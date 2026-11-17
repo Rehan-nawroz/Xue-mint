@@ -11,21 +11,19 @@ use std::time::Duration;
 pub fn start(state: AppState) -> anyhow::Result<notify::RecommendedWatcher> {
     let (tx, rx) = std::sync::mpsc::channel::<notify::Event>();
 
-    let mut watcher = notify::recommended_watcher(move |result: Result<notify::Event, notify::Error>| {
-        if let Ok(event) = result {
-            let _ = tx.send(event);
-        }
-    })?;
+    let mut watcher =
+        notify::recommended_watcher(move |result: Result<notify::Event, notify::Error>| {
+            if let Ok(event) = result {
+                let _ = tx.send(event);
+            }
+        })?;
     watcher.watch(&state.cfg.photos_dir, RecursiveMode::Recursive)?;
 
     let handle = tokio::runtime::Handle::current();
     let thread_state = state.clone();
     std::thread::spawn(move || {
         for event in rx {
-            let relevant = matches!(
-                event.kind,
-                EventKind::Create(_) | EventKind::Modify(_)
-            );
+            let relevant = matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_));
             if !relevant {
                 continue;
             }

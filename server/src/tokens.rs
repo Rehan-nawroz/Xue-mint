@@ -14,12 +14,14 @@ pub async fn create_token(pool: &SqlitePool, ttl_secs: i64) -> anyhow::Result<St
     let expires = (now + chrono::Duration::seconds(ttl_secs))
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let created = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    sqlx::query("INSERT INTO pairing_tokens (token, created_at, expires_at, used) VALUES (?, ?, ?, 0)")
-        .bind(&token)
-        .bind(&created)
-        .bind(&expires)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO pairing_tokens (token, created_at, expires_at, used) VALUES (?, ?, ?, 0)",
+    )
+    .bind(&token)
+    .bind(&created)
+    .bind(&expires)
+    .execute(pool)
+    .await?;
     Ok(token)
 }
 

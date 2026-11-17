@@ -73,8 +73,14 @@ pub async fn pair(
     .execute(&state.pool)
     .await?;
 
-    println!("Paired device \"{}\" ({device_id})", request.device_name.trim());
-    Ok(Json(PairResponse { device_id, credential }))
+    println!(
+        "Paired device \"{}\" ({device_id})",
+        request.device_name.trim()
+    );
+    Ok(Json(PairResponse {
+        device_id,
+        credential,
+    }))
 }
 
 /// Accepts standard or URL-safe base64 for the device public key.
