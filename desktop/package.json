@@ -1,0 +1,32 @@
+{
+  "name": "@xue-mint/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Xue-Mint desktop shell: tray, pairing and setup windows",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "prepare:resources": "node scripts/prepare-resources.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "npm run prepare:resources && tauri dev",
+    "tauri:build": "npm run prepare:resources && tauri build --target x86_64-pc-windows-gnu"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "@xue-mint/shared": "*",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@tauri-apps/cli": "^2.8.0",
+    "@types/qrcode": "^1.5.5",
+    "eslint": "^9.20.0",
+    "globals": "^15.14.0",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.24.0",
+    "vite": "^6.3.0"
+  }
+}
