@@ -119,7 +119,7 @@ describe('SettingsPage', () => {
       })
     );
     expect(
-      await screen.findByText(/Restart the server to use the saved folder and port/)
+      await screen.findByText(/Restart the server to use the saved port/)
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
   });

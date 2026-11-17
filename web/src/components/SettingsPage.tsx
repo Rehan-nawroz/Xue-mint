@@ -105,7 +105,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
 
       {settings.restartRequired ? (
         <p className="notice notice--warning" role="status">
-          Restart the server to use the saved folder and port. The library keeps using{' '}
+          Restart the server to use the saved port. The library is watching{' '}
           <strong>{settings.activePhotosFolder}</strong> on port{' '}
           <strong>{settings.activePort}</strong> until then.
         </p>
@@ -137,8 +137,8 @@ export function SettingsPage({ api }: SettingsPageProps) {
             onChange={(event) => update('photosFolder', event.target.value)}
           />
           <p className="field__hint" id="photos-folder-hint">
-            Full path of the folder the server watches. New files appear in the timeline
-            automatically.
+            Full path of the folder the server watches. Changing it re-targets the
+            watcher immediately and indexes files already in the folder.
           </p>
           {fieldErrors.photosFolder ? (
             <p className="field__error" id="photos-folder-error" role="alert">
