@@ -1,0 +1,39 @@
+{
+  "name": "@xue-mint/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared gallery UI, types and theme for the web gallery and the mobile app",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./theme.css": "./theme/theme.css",
+    "./components.css": "./styles/components.css"
+  },
+  "files": [
+    "dist",
+    "theme",
+    "styles"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@types/react": "^19.0.0",
+    "eslint": "^9.20.0",
+    "globals": "^15.14.0",
+    "react": "^19.0.0",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.24.0"
+  }
+}

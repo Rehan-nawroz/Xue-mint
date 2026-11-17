@@ -1,0 +1,21 @@
+{
+  "name": "xue-mint",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private photo backup: local server, web gallery and shared UI",
+  "workspaces": [
+    "shared",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @xue-mint/shared && npm run build -w @xue-mint/web",
+    "dev": "npm run build -w @xue-mint/shared && npm run dev -w @xue-mint/web",
+    "test": "npm run build -w @xue-mint/shared && npm run test -w @xue-mint/web",
+    "lint": "npm run lint -w @xue-mint/shared && npm run lint -w @xue-mint/web",
+    "typecheck": "npm run build -w @xue-mint/shared && npm run typecheck -w @xue-mint/web",
+    "check": "npm run lint && npm run test && npm run typecheck && npm run build"
+  }
+}

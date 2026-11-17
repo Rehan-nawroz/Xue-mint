@@ -1,0 +1,205 @@
+import { useCallback, useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
+import { EmptyState } from '@xue-mint/shared';
+import type { GalleryApi, GalleryApiError, ServerSettings } from '../api/types';
+import { toGalleryApiError } from '../api/types';
+import { ErrorPane } from './ErrorPane';
+import {
+  formFromSettings,
+  hasSettingsErrors,
+  validateSettings,
+} from '../lib/settings';
+import type { SettingsForm, SettingsFormErrors } from '../lib/settings';
+
+interface SettingsPageProps {
+  api: GalleryApi;
+}
+
+/** Editable server settings with validation, persistence and restart guidance. */
+export function SettingsPage({ api }: SettingsPageProps) {
+  const [settings, setSettings] = useState<ServerSettings | null>(null);
+  const [form, setForm] = useState<SettingsForm | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<GalleryApiError | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<SettingsFormErrors>({});
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const next = await api.fetchSettings();
+      setSettings(next);
+      setForm(formFromSettings(next));
+      setError(null);
+    } catch (caught) {
+      setError(toGalleryApiError(caught));
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const update = <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => {
+    setForm((current) => (current ? { ...current, [key]: value } : current));
+    setSaveMessage(null);
+    setSaveError(null);
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!form) return;
+
+    const errors = validateSettings(form);
+    setFieldErrors(errors);
+    if (hasSettingsErrors(errors)) return;
+
+    setSaving(true);
+    setSaveError(null);
+    setSaveMessage(null);
+    try {
+      const saved = await api.saveSettings({
+        photosFolder: form.photosFolder.trim(),
+        deleteBehavior: form.deleteBehavior,
+        port: Number(form.port.trim()),
+      });
+      setSettings(saved);
+      setForm(formFromSettings(saved));
+      setFieldErrors({});
+      setSaveMessage(
+        saved.restartRequired
+          ? 'Settings saved. The new folder and port take effect the next time the server starts; delete behavior applies immediately.'
+          : 'Settings saved. Delete behavior applies immediately.'
+      );
+    } catch (caught) {
+      const next = toGalleryApiError(caught);
+      if (next.status === 400) setSaveError(next.message);
+      else setError(next);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading && !settings) {
+    return <EmptyState busy title="Loading settings" />;
+  }
+
+  if (error) {
+    return <ErrorPane error={error} onRetry={() => void load()} />;
+  }
+
+  if (!form || !settings) return null;
+
+  return (
+    <section className="page" aria-labelledby="settings-title">
+      <div className="page__header">
+        <div>
+          <h2 id="settings-title">Settings</h2>
+          <p className="page__hint">These values are stored on this PC.</p>
+        </div>
+      </div>
+
+      {settings.restartRequired ? (
+        <p className="notice notice--warning" role="status">
+          Restart the server to use the saved folder and port. The library keeps using{' '}
+          <strong>{settings.activePhotosFolder}</strong> on port{' '}
+          <strong>{settings.activePort}</strong> until then.
+        </p>
+      ) : null}
+
+      {saveMessage ? (
+        <p className="notice notice--success" role="status">
+          {saveMessage}
+        </p>
+      ) : null}
+      {saveError ? (
+        <p className="notice notice--error" role="alert">
+          {saveError}
+        </p>
+      ) : null}
+
+      <form className="settings-form" onSubmit={(event) => void submit(event)} noValidate>
+        <div className="field">
+          <label htmlFor="photos-folder">Photos folder</label>
+          <input
+            id="photos-folder"
+            type="text"
+            value={form.photosFolder}
+            spellCheck={false}
+            aria-invalid={Boolean(fieldErrors.photosFolder)}
+            aria-describedby={
+              fieldErrors.photosFolder ? 'photos-folder-error photos-folder-hint' : 'photos-folder-hint'
+            }
+            onChange={(event) => update('photosFolder', event.target.value)}
+          />
+          <p className="field__hint" id="photos-folder-hint">
+            Full path of the folder the server watches. New files appear in the timeline
+            automatically.
+          </p>
+          {fieldErrors.photosFolder ? (
+            <p className="field__error" id="photos-folder-error" role="alert">
+              {fieldErrors.photosFolder}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="field">
+          <label htmlFor="delete-behavior">When a photo is deleted</label>
+          <select
+            id="delete-behavior"
+            value={form.deleteBehavior}
+            onChange={(event) =>
+              update('deleteBehavior', event.target.value as SettingsForm['deleteBehavior'])
+            }
+          >
+            <option value="index_only">Remove from the library only (keep the file)</option>
+            <option value="delete_file">Delete the file from the PC as well</option>
+          </select>
+          <p className="field__hint">
+            Applies to deletions from now on. Deleting from the library never touches files
+            unless you choose the second option.
+          </p>
+        </div>
+
+        <div className="field field--short">
+          <label htmlFor="port">Server port</label>
+          <input
+            id="port"
+            type="text"
+            inputMode="numeric"
+            value={form.port}
+            aria-invalid={Boolean(fieldErrors.port)}
+            aria-describedby={fieldErrors.port ? 'port-error port-hint' : 'port-hint'}
+            onChange={(event) => update('port', event.target.value)}
+          />
+          <p className="field__hint" id="port-hint">
+            Between 1024 and 65535. Changing the port requires a server restart.
+          </p>
+          {fieldErrors.port ? (
+            <p className="field__error" id="port-error" role="alert">
+              {fieldErrors.port}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="settings-form__active">
+          <h3>Active now</h3>
+          <p>
+            Folder: <code>{settings.activePhotosFolder}</code>
+          </p>
+          <p>
+            Port: <code>{settings.activePort}</code>
+          </p>
+        </div>
+
+        <button type="submit" className="primary-button" disabled={saving}>
+          {saving ? 'Saving…' : 'Save settings'}
+        </button>
+      </form>
+    </section>
+  );
+}
