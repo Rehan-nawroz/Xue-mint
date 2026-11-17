@@ -1,0 +1,34 @@
+[package]
+name = "xue-mint-desktop"
+version = "0.1.0"
+description = "Xue-Mint desktop shell and background backup server"
+authors = ["Rehan"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "xue_mint_desktop_lib"
+crate-type = ["rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+xue-mint-server = { path = "../../server" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+dirs = "6"
+mdns-sd = "0.22"
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Power"] }

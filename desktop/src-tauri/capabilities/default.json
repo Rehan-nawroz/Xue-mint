@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Pairing and setup windows run the desktop shell's own commands.",
+  "windows": ["pairing", "setup"],
+  "permissions": ["core:default"]
+}
