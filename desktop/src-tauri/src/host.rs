@@ -4,6 +4,8 @@ use crate::mdns::MdnsAdvertiser;
 use crate::state::DesktopState;
 use crate::{firewall, open_gallery_window, open_pairing_window, open_setup_window};
 use serde::{Deserialize, Serialize};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
@@ -132,13 +134,49 @@ pub fn launch(app: AppHandle, startup: Startup) {
     tauri::async_runtime::spawn(async move {
         let mut last_error: Option<String> = None;
         loop {
-            let result = xue_mint_server::run_server(cfg.clone(), pool.clone()).await;
-            let message = match result {
-                Ok(()) => "The local server stopped unexpectedly.".to_string(),
-                Err(error) => format!("The local server could not start: {error}"),
+            let mut task =
+                tauri::async_runtime::spawn(xue_mint_server::run_server(cfg.clone(), pool.clone()));
+            let mut ready = false;
+            let mut finished = None;
+
+            // A bound listener is not proof the HTTPS server is answering. If
+            // the first request never completes, abort this attempt and retry
+            // instead of leaving a half-started server in place.
+            for _ in 0..30 {
+                tokio::select! {
+                    joined = &mut task => {
+                        finished = Some(joined);
+                        break;
+                    }
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                        if fetch_pairing(&server_state.http, server_state.port()).await.is_some() {
+                            ready = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let message = if ready {
+                log_startup(&cfg, "Local server is answering requests");
+                match task.await {
+                    Ok(Ok(())) => "The local server stopped unexpectedly.".to_string(),
+                    Ok(Err(error)) => format!("The local server could not start: {error}"),
+                    Err(error) => format!("The local server task failed: {error}"),
+                }
+            } else if let Some(joined) = finished {
+                match joined {
+                    Ok(Ok(())) => "The local server stopped unexpectedly.".to_string(),
+                    Ok(Err(error)) => format!("The local server could not start: {error}"),
+                    Err(error) => format!("The local server task failed: {error}"),
+                }
+            } else {
+                task.abort();
+                let _ = task.await;
+                "The local server did not answer within 30 seconds; retrying.".to_string()
             };
+            log_startup(&cfg, &message);
             if last_error.as_deref() != Some(message.as_str()) {
-                eprintln!("{message}");
                 last_error = Some(message.clone());
             }
             server_state.set_ready(false);
@@ -260,6 +298,17 @@ pub fn ensure_default_autostart(app: &AppHandle, data_dir: &Path) {
     }
     if app.autolaunch().enable().is_ok() {
         let _ = std::fs::write(marker, b"1");
+    }
+}
+
+fn log_startup(cfg: &Config, message: &str) {
+    eprintln!("{message}");
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(cfg.data_dir.join("desktop.log"))
+    {
+        let _ = writeln!(file, "{message}");
     }
 }
 
