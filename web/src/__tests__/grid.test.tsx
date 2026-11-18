@@ -5,7 +5,7 @@ import { makeAsset, makeAssets } from '../test/fixtures';
 
 describe('grid layout', () => {
   it('computes responsive column counts from the available width', () => {
-    expect(columnsForWidth(1024)).toBe(8);
+    expect(columnsForWidth(1024)).toBe(6);
     expect(columnsForWidth(320)).toBe(2);
     expect(columnsForWidth(120)).toBe(1);
   });
@@ -16,7 +16,7 @@ describe('grid layout', () => {
 
     expect(layout.rows[0].kind).toBe('header');
     expect(layout.rows[1].kind).toBe('tiles');
-    expect(layout.columns).toBe(8);
+    expect(layout.columns).toBe(6);
     expect(layout.totalHeight).toBeGreaterThan(0);
   });
 });
@@ -43,11 +43,24 @@ describe('PhotoGrid', () => {
     expect(scroller).not.toBeNull();
     Object.defineProperty(scroller as HTMLElement, 'scrollTop', {
       configurable: true,
-      value: 200,
+      value: 500,
     });
     fireEvent.scroll(scroller as HTMLElement);
 
     expect(pin).toHaveTextContent('Jan 16, 2024');
+  });
+
+  it('insets tile rows and date headers from the page edge', () => {
+    const assets = makeAssets(4, 15);
+    const { container } = render(<PhotoGrid assets={assets} onOpen={() => undefined} />);
+
+    const row = container.querySelector<HTMLElement>('.xm-grid__row');
+    const date = container.querySelector<HTMLElement>('.xm-grid__date');
+    expect(row).not.toBeNull();
+    expect(row?.style.left).toBe('16px');
+    expect(row?.style.right).toBe('16px');
+    expect(date?.style.left).toBe('16px');
+    expect(date?.style.right).toBe('16px');
   });
 
   it('opens the selected asset with its timeline index', () => {

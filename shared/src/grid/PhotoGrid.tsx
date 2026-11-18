@@ -24,6 +24,8 @@ export interface PhotoGridProps {
   overscan?: number;
   /** Called when the user scrolls close to the end of the loaded rows. */
   onEndReached?: () => void;
+  /** Side inset that aligns tiles with the surrounding page chrome. */
+  horizontalPadding?: number;
   /** Fallback measurements for environments without ResizeObserver. */
   initialWidth?: number;
   initialViewportHeight?: number;
@@ -45,6 +47,7 @@ interface TileProps {
 
 const Tile = memo(function Tile({ asset, index, onOpen, onStepFocus }: TileProps) {
   const [failed, setFailed] = useState(false);
+  const name = asset.filename?.trim() || (isVideo(asset) ? 'Untitled video' : 'Untitled photo');
 
   return (
     <button
@@ -63,25 +66,30 @@ const Tile = memo(function Tile({ asset, index, onOpen, onStepFocus }: TileProps
         }
       }}
     >
-      {failed ? (
-        <span className="xm-tile__fallback" aria-hidden="true">
-          <span className="xm-tile__fallback-mark" />
-        </span>
-      ) : (
-        <img
-          className="xm-tile__image"
-          src={asset.thumbUrl}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailed(true)}
-        />
-      )}
-      {isVideo(asset) ? (
-        <span className="xm-tile__badge" aria-hidden="true">
-          ▶
-        </span>
-      ) : null}
+      <span className="xm-tile__media">
+        {failed ? (
+          <span className="xm-tile__fallback" aria-hidden="true">
+            <span className="xm-tile__fallback-mark" />
+          </span>
+        ) : (
+          <img
+            className="xm-tile__image"
+            src={asset.thumbUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+          />
+        )}
+        {isVideo(asset) ? (
+          <span className="xm-tile__badge" aria-hidden="true">
+            ▶
+          </span>
+        ) : null}
+      </span>
+      <span className="xm-tile__name" title={name}>
+        {name}
+      </span>
     </button>
   );
 });
@@ -101,6 +109,7 @@ export function PhotoGrid({
   headerHeight = DEFAULT_HEADER_HEIGHT,
   overscan = 3,
   onEndReached,
+  horizontalPadding = 16,
   initialWidth = 1024,
   initialViewportHeight = 800,
   className,
@@ -111,9 +120,10 @@ export function PhotoGrid({
   const [scrollTop, setScrollTop] = useState(0);
 
   const groups = useMemo(() => groupAssetsByDay([...assets]), [assets]);
+  const contentWidth = Math.max(1, width - horizontalPadding * 2);
   const layout = useMemo(
-    () => buildGridLayout(groups, width, { minTileSize, gap, headerHeight }),
-    [groups, width, minTileSize, gap, headerHeight]
+    () => buildGridLayout(groups, contentWidth, { minTileSize, gap, headerHeight }),
+    [groups, contentWidth, minTileSize, gap, headerHeight]
   );
   const range = visibleRowRange(layout.rows, scrollTop, viewportHeight, overscan);
   const label = pinnedLabel(layout.rows, scrollTop);
@@ -184,7 +194,12 @@ export function PhotoGrid({
               <h3
                 key={row.key}
                 className="xm-grid__date"
-                style={{ top: row.top, height: row.height }}
+                style={{
+                  top: row.top,
+                  left: horizontalPadding,
+                  right: horizontalPadding,
+                  height: row.height,
+                }}
               >
                 {row.label}
               </h3>
@@ -194,6 +209,8 @@ export function PhotoGrid({
                 className="xm-grid__row"
                 style={{
                   top: row.top,
+                  left: horizontalPadding,
+                  right: horizontalPadding,
                   height: row.height,
                   gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
                   gap,

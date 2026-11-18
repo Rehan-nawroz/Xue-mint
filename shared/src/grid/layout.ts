@@ -1,9 +1,10 @@
 import type { DayGroup } from '../dates';
 import type { GalleryAsset } from '../types';
 
-export const DEFAULT_HEADER_HEIGHT = 40;
-export const DEFAULT_GAP = 4;
-export const DEFAULT_MIN_TILE = 120;
+export const DEFAULT_HEADER_HEIGHT = 48;
+export const DEFAULT_GAP = 12;
+export const DEFAULT_MIN_TILE = 150;
+export const DEFAULT_CAPTION_HEIGHT = 30;
 
 export interface HeaderRow {
   kind: 'header';
@@ -53,11 +54,13 @@ export function buildGridLayout(
     minTileSize?: number;
     gap?: number;
     headerHeight?: number;
+    captionHeight?: number;
   } = {}
 ): GridLayout {
   const minTileSize = options.minTileSize ?? DEFAULT_MIN_TILE;
   const gap = options.gap ?? DEFAULT_GAP;
   const headerHeight = options.headerHeight ?? DEFAULT_HEADER_HEIGHT;
+  const captionHeight = options.captionHeight ?? DEFAULT_CAPTION_HEIGHT;
   const columns = columnsForWidth(width, minTileSize, gap);
   const tileSize = Math.max(
     1,
@@ -86,11 +89,11 @@ export function buildGridLayout(
         kind: 'tiles',
         key: `tiles-${group.key}-${start}`,
         top,
-        height: tileSize,
+        height: tileSize + captionHeight,
         items: slice.map((asset) => ({ asset, index: index++ })),
       };
       rows.push(tiles);
-      top += tileSize + gap;
+      top += tileSize + captionHeight + gap;
     }
   }
 

@@ -33,6 +33,7 @@ export type { ResolvedTheme, ThemeChoice } from './theme/ThemeProvider';
 export { PhotoGrid } from './grid/PhotoGrid';
 export type { PhotoGridProps } from './grid/PhotoGrid';
 export {
+  DEFAULT_CAPTION_HEIGHT,
   DEFAULT_GAP,
   DEFAULT_HEADER_HEIGHT,
   DEFAULT_MIN_TILE,

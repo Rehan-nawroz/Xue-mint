@@ -36,8 +36,8 @@
   --shadow: 0 1px 3px rgba(20, 20, 24, 0.14);
 
   /* Grid */
-  --grid-gap: 4px;
-  --thumb-min: 120px;
+  --grid-gap: 12px;
+  --thumb-min: 150px;
 }
 
 @media (prefers-color-scheme: dark) {
