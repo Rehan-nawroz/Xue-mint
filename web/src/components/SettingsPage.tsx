@@ -4,6 +4,7 @@ import { EmptyState } from '@xue-mint/shared';
 import type { GalleryApi, GalleryApiError, ServerSettings } from '../api/types';
 import { toGalleryApiError } from '../api/types';
 import { ErrorPane } from './ErrorPane';
+import { PairingDialog } from './PairingDialog';
 import {
   formFromSettings,
   hasSettingsErrors,
@@ -25,6 +26,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
   const [fieldErrors, setFieldErrors] = useState<SettingsFormErrors>({});
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pairingOpen, setPairingOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -200,6 +202,27 @@ export function SettingsPage({ api }: SettingsPageProps) {
           {saving ? 'Saving…' : 'Save settings'}
         </button>
       </form>
+
+      <section className="pairing-panel" aria-labelledby="pair-phone-title">
+        <div>
+          <h3 id="pair-phone-title">Pair a phone</h3>
+          <p>
+            Show a one-time QR code for the Xue-Mint app. Your phone backs up over this
+            Wi-Fi, without an account.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => setPairingOpen(true)}
+        >
+          Show QR code
+        </button>
+      </section>
+
+      {pairingOpen ? (
+        <PairingDialog api={api} onClose={() => setPairingOpen(false)} />
+      ) : null}
     </section>
   );
 }

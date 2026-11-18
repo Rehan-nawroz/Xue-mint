@@ -5,7 +5,7 @@ import { DevicesPage } from '../components/DevicesPage';
 import { SettingsPage } from '../components/SettingsPage';
 import { StatusBar } from '../components/StatusBar';
 import { GalleryApiError } from '../api/types';
-import { defaultSettings, defaultStatus, makeApi, makeDevice } from '../test/fixtures';
+import { defaultPairing, defaultSettings, defaultStatus, makeApi, makeDevice } from '../test/fixtures';
 
 describe('StatusBar', () => {
   it('shows library totals from the server', () => {
@@ -122,6 +122,25 @@ describe('SettingsPage', () => {
       await screen.findByText(/Restart the server to use the saved port/)
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
+  });
+
+  it('opens a one-time pairing QR code from settings', async () => {
+    const createPairingCode = vi.fn(async () => defaultPairing);
+    const api = makeApi({ createPairingCode });
+    const user = userEvent.setup();
+
+    render(<SettingsPage api={api} />);
+    await user.click(await screen.findByRole('button', { name: 'Show QR code' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Pair a phone' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(await screen.findByLabelText('Pairing QR code')).toBeInTheDocument();
+    expect(createPairingCode).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('STUDIO-PC')).toBeInTheDocument();
+    expect(screen.getByText('https://192.168.1.24:8427')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('renders the saved delete behavior and reports server validation errors', async () => {
