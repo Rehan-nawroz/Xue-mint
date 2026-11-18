@@ -28,8 +28,9 @@ interface AppProps {
 export function App({ api: providedApi }: AppProps = {}) {
   const [api] = useState<GalleryApi>(() => providedApi ?? createApi());
   const [view, setView] = useState<AppView>('photos');
+  const [search, setSearch] = useState('');
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
-  const timeline = useTimeline(api);
+  const timeline = useTimeline(api, search);
   const status = useStatus(api);
 
   const openViewer = (_asset: GalleryAsset, index: number) => {
@@ -76,7 +77,12 @@ export function App({ api: providedApi }: AppProps = {}) {
               error={status.error}
               onRetry={status.refresh}
             />
-            <TimelineView timeline={timeline} onOpen={openViewer} />
+            <TimelineView
+              timeline={timeline}
+              onOpen={openViewer}
+              query={search}
+              onQueryChange={setSearch}
+            />
           </>
         ) : view === 'devices' ? (
           <DevicesPage api={api} />
