@@ -29,7 +29,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/assets", get(api::assets::timeline))
         .route("/assets/{id}/thumb", get(api::assets::thumb))
         .route("/assets/{id}/original", get(api::assets::original))
-        .route("/assets/{id}", delete(api::assets::delete_asset))
+        .route(
+            "/assets/{id}",
+            delete(api::assets::delete_asset).patch(api::assets::rename_asset),
+        )
         .route("/devices", get(api::devices::list))
         .route("/devices/{id}", delete(api::devices::revoke))
         .route("/local/session", post(api::local::session))

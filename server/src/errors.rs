@@ -46,6 +46,14 @@ impl ApiError {
         }
     }
 
+    pub fn conflict(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code,
+            message: message.into(),
+        }
+    }
+
     pub fn pair_token_invalid() -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,

@@ -537,6 +537,234 @@ async fn timeline_cursor_pagination_and_delete() {
 }
 
 #[tokio::test]
+async fn timeline_search_filters_filenames_and_keeps_query_in_cursor() {
+    let (base, pool) = start_server().await;
+    let http = client();
+
+    let token = tokens::create_token(&pool, 600).await.unwrap();
+    let paired: Value = http
+        .post(format!("{base}/pair"))
+        .json(&json!({
+            "token": token,
+            "devicePublicKey": BASE64.encode(b"searcher"),
+            "deviceName": "Searcher"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let credential = paired["credential"].as_str().unwrap().to_string();
+
+    let entries = [
+        ("Sunset over lake.jpg", "2024-02-05T10:00:00"),
+        ("sunrise.png", "2024-02-04T10:00:00"),
+        ("Dinner.JPG", "2024-02-03T10:00:00"),
+        ("100% real.jpg", "2024-02-02T10:00:00"),
+        ("1000 real.jpg", "2024-02-01T10:00:00"),
+    ];
+    for (index, (filename, taken_at)) in entries.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO assets (id, hash, filename, type, size, taken_at, gps, width, height, path, added_at)              VALUES (?, ?, ?, 'photo', 1, ?, NULL, NULL, NULL, ?, ?)",
+        )
+        .bind(format!("search-{index}"))
+        .bind(format!("{:064x}", index + 1))
+        .bind(filename)
+        .bind(taken_at)
+        .bind(format!("search-{index}.jpg"))
+        .bind(taken_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // Case-insensitive substring search.
+    let found: Value = http
+        .get(format!("{base}/assets?q=sun"))
+        .header("Authorization", auth(&credential))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let items = found["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    for item in items {
+        assert!(item["filename"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("sun"));
+    }
+
+    // LIKE wildcards in the user's text are matched literally.
+    let percent: Value = http
+        .get(format!("{base}/assets?q=100%25"))
+        .header("Authorization", auth(&credential))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let percent_items = percent["items"].as_array().unwrap();
+    assert_eq!(percent_items.len(), 1);
+    assert_eq!(percent_items[0]["filename"], "100% real.jpg");
+
+    // The search term travels in the cursor, so the next page stays filtered.
+    let first: Value = http
+        .get(format!("{base}/assets?q=sun&limit=1"))
+        .header("Authorization", auth(&credential))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(first["items"].as_array().unwrap().len(), 1);
+    let cursor = first["nextCursor"].as_str().unwrap();
+    let second: Value = http
+        .get(format!("{base}/assets?limit=1&cursor={cursor}"))
+        .header("Authorization", auth(&credential))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let second_items = second["items"].as_array().unwrap();
+    assert_eq!(second_items.len(), 1);
+    assert!(second_items[0]["filename"]
+        .as_str()
+        .unwrap()
+        .to_lowercase()
+        .contains("sun"));
+
+    // A blank search returns the whole library again.
+    let all: Value = http
+        .get(format!("{base}/assets?q=%20%20"))
+        .header("Authorization", auth(&credential))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(all["items"].as_array().unwrap().len(), entries.len());
+}
+
+#[tokio::test]
+async fn rename_asset_renames_the_file_and_rejects_conflicts() {
+    let (base, pool, state) = start_server_state().await;
+    let http = client();
+    let cookie = session_cookie(
+        &http
+            .post(format!("{base}/local/session"))
+            .send()
+            .await
+            .unwrap(),
+    );
+
+    async fn add_photo(state: &AppState, pool: &sqlx::SqlitePool, name: &str) -> String {
+        let path = state.cfg.photos_dir.join(name);
+        let mut bytes = test_jpeg();
+        bytes.extend_from_slice(name.as_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        xue_mint_server::ingest::ingest_file(state, &path)
+            .await
+            .unwrap();
+        sqlx::query("SELECT id FROM assets WHERE filename = ?")
+            .bind(name)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+            .get("id")
+    }
+
+    let id = add_photo(&state, &pool, "old-name.jpg").await;
+    let old_path = state.cfg.photos_dir.join("old-name.jpg");
+    let new_path = state.cfg.photos_dir.join("Vacation.jpg");
+
+    // A name without an extension keeps the original media extension.
+    let response = http
+        .patch(format!("{base}/assets/{id}"))
+        .header("Cookie", &cookie)
+        .json(&json!({ "filename": "Vacation" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let renamed: Value = response.json().await.unwrap();
+    assert_eq!(renamed["filename"], "Vacation.jpg");
+    assert!(!old_path.exists(), "the old file must be moved");
+    assert!(new_path.exists(), "the new file must exist");
+
+    let row = sqlx::query("SELECT filename, path FROM assets WHERE id = ?")
+        .bind(&id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>("filename"), "Vacation.jpg");
+    let stored_path: String = row.get("path");
+    assert!(
+        std::path::Path::new(&stored_path)
+            .file_name()
+            .is_some_and(|name| name == "Vacation.jpg"),
+        "stored path must point at the renamed file: {stored_path}"
+    );
+
+    // Search immediately sees the new name.
+    let found: Value = http
+        .get(format!("{base}/assets?q=Vacation"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(found["items"].as_array().unwrap().len(), 1);
+
+    add_photo(&state, &pool, "taken.jpg").await;
+    let response = http
+        .patch(format!("{base}/assets/{id}"))
+        .header("Cookie", &cookie)
+        .json(&json!({ "filename": "taken.jpg" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 409);
+
+    for bad_name in ["../escape.jpg", "new.png", "CON", "bad?name.jpg"] {
+        let response = http
+            .patch(format!("{base}/assets/{id}"))
+            .header("Cookie", &cookie)
+            .json(&json!({ "filename": bad_name }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            400,
+            "{bad_name} must be rejected"
+        );
+    }
+
+    // A case-only rename still leaves exactly one file and the new spelling.
+    let response = http
+        .patch(format!("{base}/assets/{id}"))
+        .header("Cookie", &cookie)
+        .json(&json!({ "filename": "vacation.JPG" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    assert!(state.cfg.photos_dir.join("vacation.JPG").exists());
+}
+
+#[tokio::test]
 async fn watcher_indexes_files_dropped_into_photos_folder() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = test_config(dir.path());

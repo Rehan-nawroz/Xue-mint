@@ -17,7 +17,7 @@ use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::io::SeekFrom;
-use std::path::PathBuf;
+use std::path::{Path as FsPath, PathBuf};
 
 use tokio::io::AsyncWriteExt;
 
@@ -391,6 +391,8 @@ fn header_i64(headers: &HeaderMap, name: &str) -> Option<i64> {
 pub struct TimelineParams {
     pub cursor: Option<String>,
     pub limit: Option<i64>,
+    /// Case-insensitive file-name search. Empty or whitespace is ignored.
+    pub q: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -420,6 +422,22 @@ pub struct TimelineResponse {
 struct Cursor {
     k: String,
     i: String,
+    /// Search term is carried in the cursor so paging cannot silently drop it.
+    #[serde(default)]
+    q: Option<String>,
+}
+
+fn like_pattern(term: &str) -> String {
+    let mut pattern = String::with_capacity(term.len() + 2);
+    pattern.push('%');
+    for character in term.chars() {
+        if matches!(character, '\\' | '%' | '_') {
+            pattern.push('\\');
+        }
+        pattern.push(character);
+    }
+    pattern.push('%');
+    pattern
 }
 
 pub async fn timeline(
@@ -430,21 +448,43 @@ pub async fn timeline(
     let limit = params.limit.unwrap_or(200).clamp(1, 500);
 
     let cursor = decode_cursor(params.cursor.as_deref())?;
+    let term = params
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| cursor.as_ref().and_then(|decoded| decoded.q.clone()));
     let select =
         "SELECT id, hash, filename, type, size, taken_at, gps, width, height, added_at FROM assets";
 
-    let sql = match &cursor {
-        Some(_) => format!(
-            "{select} WHERE (COALESCE(taken_at, added_at) < ?1 \
-             OR (COALESCE(taken_at, added_at) = ?1 AND id < ?2)) \
-             ORDER BY COALESCE(taken_at, added_at) DESC, id DESC LIMIT ?3"
-        ),
-        None => format!("{select} ORDER BY COALESCE(taken_at, added_at) DESC, id DESC LIMIT ?1"),
+    let mut clauses = Vec::new();
+    if term.is_some() {
+        clauses.push("filename LIKE ? ESCAPE '\\'");
+    }
+    if cursor.is_some() {
+        clauses.push(
+            "(COALESCE(taken_at, added_at) < ? \
+             OR (COALESCE(taken_at, added_at) = ? AND id < ?))",
+        );
+    }
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
     };
+    let sql =
+        format!("{select}{where_sql} ORDER BY COALESCE(taken_at, added_at) DESC, id DESC LIMIT ?");
 
     let mut query = sqlx::query(&sql);
+    if let Some(term) = &term {
+        query = query.bind(like_pattern(term));
+    }
     if let Some(decoded) = cursor {
-        query = query.bind(decoded.k).bind(decoded.i);
+        query = query
+            .bind(decoded.k.clone())
+            .bind(decoded.k)
+            .bind(decoded.i);
     }
     // Fetch one extra row to learn whether a next page exists.
     let query = query.bind(limit + 1);
@@ -478,6 +518,7 @@ pub async fn timeline(
                     .clone()
                     .unwrap_or_else(|| last.added_at.clone()),
                 i: last.id.clone(),
+                q: term.clone(),
             };
             URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cursor).unwrap_or_default())
         })
@@ -540,6 +581,176 @@ pub async fn original(
         Body::from_stream(stream),
     )
         .into_response())
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /assets/{id} — rename the library entry and the file on disk
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct RenameRequest {
+    pub filename: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RenameResponse {
+    pub filename: String,
+}
+
+fn is_reserved_windows_name(stem: &str) -> bool {
+    let upper = stem.to_ascii_uppercase();
+    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return true;
+    }
+    for prefix in ["COM", "LPT"] {
+        if let Some(rest) = upper.strip_prefix(prefix) {
+            if rest.len() == 1 && matches!(rest.as_bytes()[0], b'1'..=b'9') {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Keeps the existing extension so a rename cannot silently change the media
+/// type, and rejects names Windows cannot store.
+fn normalized_filename(raw: &str, extension: &str) -> Result<String, ApiError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ApiError::bad_request("Enter a file name."));
+    }
+    if trimmed == "." || trimmed == ".." {
+        return Err(ApiError::bad_request("That file name is not allowed."));
+    }
+    if trimmed.ends_with('.') || trimmed.ends_with(' ') {
+        return Err(ApiError::bad_request(
+            "File names cannot end with a dot or a space.",
+        ));
+    }
+    if trimmed.chars().any(|c| {
+        c.is_control() || matches!(c, '/' | '\u{5C}' | '<' | '>' | ':' | '"' | '|' | '?' | '*')
+    }) {
+        return Err(ApiError::bad_request(
+            "File names cannot contain / \u{5C} < > : \u{22} | ? * or control characters.",
+        ));
+    }
+    let candidate = if extension.is_empty() || FsPath::new(trimmed).extension().is_some() {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}.{extension}")
+    };
+
+    if !extension.is_empty() && media::ext_of(FsPath::new(&candidate)) != extension {
+        return Err(ApiError::bad_request(format!(
+            "Keep the original .{extension} extension."
+        )));
+    }
+    if candidate.len() > 255 {
+        return Err(ApiError::bad_request("That file name is too long."));
+    }
+
+    let stem = FsPath::new(&candidate)
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if is_reserved_windows_name(&stem) {
+        return Err(ApiError::bad_request(
+            "That file name is reserved by Windows.",
+        ));
+    }
+
+    Ok(candidate)
+}
+
+pub async fn rename_asset(
+    State(state): State<AppState>,
+    _device: Device,
+    Path(id): Path<String>,
+    Json(request): Json<RenameRequest>,
+) -> Result<Json<RenameResponse>, ApiError> {
+    let asset = asset_row_by_id(&state.pool, &id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("ASSET_NOT_FOUND", "No such asset."))?;
+    let rel_path: String = asset.get("path");
+    let old_rel = PathBuf::from(&rel_path);
+    let old_name = old_rel
+        .file_name()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let extension = media::ext_of(&old_rel);
+    let new_name = normalized_filename(&request.filename, &extension)?;
+
+    if new_name == old_name {
+        return Ok(Json(RenameResponse { filename: new_name }));
+    }
+
+    let absolute_storage = old_rel.is_absolute();
+    let parent = old_rel
+        .parent()
+        .filter(|value| !value.as_os_str().is_empty())
+        .map(FsPath::to_path_buf);
+    let new_rel = match (&parent, absolute_storage) {
+        (Some(parent), _) => parent.join(&new_name),
+        (None, true) => old_rel.with_file_name(&new_name),
+        (None, false) => PathBuf::from(&new_name),
+    };
+    let old_abs = if absolute_storage {
+        old_rel.clone()
+    } else {
+        state.photos_dir().join(&old_rel)
+    };
+    let new_abs = if absolute_storage {
+        new_rel.clone()
+    } else {
+        state.photos_dir().join(&new_rel)
+    };
+
+    if !old_abs.is_file() {
+        return Err(ApiError::not_found(
+            "ASSET_FILE_MISSING",
+            "The file is no longer in the photos folder.",
+        ));
+    }
+    if new_abs.exists() && !new_name.eq_ignore_ascii_case(&old_name) {
+        return Err(ApiError::conflict(
+            "FILE_EXISTS",
+            "A file with that name already exists in this folder.",
+        ));
+    }
+
+    // Windows treats names case-insensitively. Move through a temporary name so
+    // a case-only rename works there without clobbering anything.
+    let case_only = old_name != new_name && old_name.eq_ignore_ascii_case(&new_name);
+    if case_only {
+        let temp = old_abs.with_file_name(format!(".xm-rename-{}.tmp", uuid::Uuid::new_v4()));
+        tokio::fs::rename(&old_abs, &temp)
+            .await
+            .map_err(|error| ApiError::internal(format!("Could not rename the file: {error}")))?;
+        if let Err(error) = tokio::fs::rename(&temp, &new_abs).await {
+            let _ = tokio::fs::rename(&temp, &old_abs).await;
+            return Err(ApiError::internal(format!(
+                "Could not rename the file: {error}"
+            )));
+        }
+    } else if let Err(error) = tokio::fs::rename(&old_abs, &new_abs).await {
+        return Err(ApiError::internal(format!(
+            "Could not rename the file: {error}"
+        )));
+    }
+
+    let new_rel_text = new_rel.to_string_lossy().into_owned();
+    let update = sqlx::query("UPDATE assets SET filename = ?, path = ? WHERE id = ?")
+        .bind(&new_name)
+        .bind(&new_rel_text)
+        .bind(&id)
+        .execute(&state.pool)
+        .await;
+    if let Err(error) = update {
+        let _ = tokio::fs::rename(&new_abs, &old_abs).await;
+        return Err(error.into());
+    }
+
+    Ok(Json(RenameResponse { filename: new_name }))
 }
 
 // ---------------------------------------------------------------------------
