@@ -1071,6 +1071,18 @@ async fn local_session_cookie_unlocks_gallery_and_hides_local_identity() {
     assert_eq!(summary["photoCount"], 0);
     assert_eq!(summary["videoCount"], 0);
 
+    let connection = http
+        .get(format!("{base}/local/connection"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(connection.status().as_u16(), 200);
+    let connection: Value = connection.json().await.unwrap();
+    assert!(connection["allowed"].is_boolean());
+    assert_eq!(connection["canManage"], cfg!(windows));
+    assert!(connection["addresses"].is_array());
+
     // The built-in gallery identity is not a paired device and cannot be revoked.
     let devices = http
         .get(format!("{base}/devices"))
@@ -1107,6 +1119,8 @@ async fn local_endpoints_reject_requests_without_loopback_identity() {
         ("GET", "/local/settings"),
         ("GET", "/local/pairing"),
         ("POST", "/local/pairing"),
+        ("GET", "/local/connection"),
+        ("PUT", "/local/connection"),
         ("POST", "/local/session"),
     ] {
         let response = app

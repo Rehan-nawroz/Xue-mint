@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { EmptyState } from '@xue-mint/shared';
-import type { GalleryApi, GalleryApiError, ServerSettings } from '../api/types';
+import type {
+  ConnectionStatus,
+  GalleryApi,
+  GalleryApiError,
+  ServerSettings,
+} from '../api/types';
 import { toGalleryApiError } from '../api/types';
 import { ErrorPane } from './ErrorPane';
 import { PairingDialog } from './PairingDialog';
@@ -27,6 +32,11 @@ export function SettingsPage({ api }: SettingsPageProps) {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [pairingOpen, setPairingOpen] = useState(false);
+  const [connection, setConnection] = useState<ConnectionStatus | null>(null);
+  const [connectionLoading, setConnectionLoading] = useState(true);
+  const [connectionSaving, setConnectionSaving] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,6 +55,42 @@ export function SettingsPage({ api }: SettingsPageProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadConnection = useCallback(async () => {
+    setConnectionLoading(true);
+    try {
+      setConnection(await api.fetchConnection());
+      setConnectionError(null);
+    } catch (caught) {
+      setConnectionError(toGalleryApiError(caught).message);
+    } finally {
+      setConnectionLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void loadConnection();
+  }, [loadConnection]);
+
+  const toggleConnection = async () => {
+    if (!connection || connectionSaving || !connection.canManage) return;
+    setConnectionSaving(true);
+    setConnectionError(null);
+    setConnectionMessage(null);
+    try {
+      const next = await api.setConnection(!connection.allowed);
+      setConnection(next);
+      setConnectionMessage(
+        next.allowed
+          ? 'Phones on this Wi-Fi can now reach Xue-Mint.'
+          : 'New phone connections are blocked.'
+      );
+    } catch (caught) {
+      setConnectionError(toGalleryApiError(caught).message);
+    } finally {
+      setConnectionSaving(false);
+    }
+  };
 
   const update = <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
@@ -203,12 +249,68 @@ export function SettingsPage({ api }: SettingsPageProps) {
         </button>
       </form>
 
+      <section className="connection-panel" aria-labelledby="phone-connections-title">
+        <div className="connection-panel__copy">
+          <h3 id="phone-connections-title">Phone connections</h3>
+          <p>
+            Let phones on this Wi-Fi reach Xue-Mint. Windows Firewall controls access on
+            private networks; the internet stays blocked.
+          </p>
+          <p className="connection-panel__state" role="status">
+            <span
+              className={
+                connection?.allowed
+                  ? 'connection-panel__dot is-allowed'
+                  : 'connection-panel__dot'
+              }
+              aria-hidden="true"
+            />
+            {connectionLoading
+              ? 'Checking Windows Firewall…'
+              : !connection
+                ? 'Connection status unavailable'
+                : !connection.canManage
+                  ? 'Available on Windows only'
+                  : connection.allowed
+                    ? 'Phones on this Wi-Fi can connect'
+                    : 'Phone connections are blocked'}
+          </p>
+          {connectionError ? (
+            <p className="connection-panel__message field__error" role="alert">
+              {connectionError}
+              <button type="button" className="link-button" onClick={() => void loadConnection()}>
+                Try again
+              </button>
+            </p>
+          ) : null}
+          {connectionMessage ? (
+            <p className="connection-panel__message" role="status">
+              {connectionMessage}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className={
+            connection?.allowed ? 'danger-outline-button' : 'secondary-button'
+          }
+          disabled={connectionLoading || connectionSaving || !connection?.canManage}
+          onClick={() => void toggleConnection()}
+        >
+          {connectionSaving
+            ? 'Waiting for Windows…'
+            : connection?.allowed
+              ? 'Block phone connections'
+              : 'Allow phone connections'}
+        </button>
+      </section>
+
       <section className="pairing-panel" aria-labelledby="pair-phone-title">
         <div>
           <h3 id="pair-phone-title">Pair a phone</h3>
           <p>
-            Show a one-time QR code for the Xue-Mint app. Your phone backs up over this
-            Wi-Fi, without an account.
+            Show a one-time QR code for the Xue-Mint app. Allow phone connections above
+            first, then scan with your phone over this Wi-Fi.
           </p>
         </div>
         <button

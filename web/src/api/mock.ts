@@ -2,6 +2,7 @@ import type { GalleryAsset } from '@xue-mint/shared';
 import type {
   DeleteBehavior,
   GalleryApi,
+  ConnectionStatus,
   LibraryStatus,
   PairedDevice,
   PairingInfo,
@@ -73,6 +74,14 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
   const latencyMs = options.latencyMs ?? 120;
   let assets = options.empty ? [] : buildAssets(options.count ?? 240, now);
   const revoked = new Set<string>();
+  let connectionAllowed = false;
+  const connectionStatus = (): ConnectionStatus => ({
+    allowed: connectionAllowed,
+    canManage: true,
+    platform: 'windows',
+    port: settings.activePort,
+    addresses: ['192.168.1.24'],
+  });
   let settings: ServerSettings = {
     deleteBehavior: 'index_only',
     photosFolder: 'C:\\Users\\You\\Pictures\\Xue-Mint',
@@ -170,6 +179,17 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
     async fetchSettings(): Promise<ServerSettings> {
       await delay(latencyMs);
       return { ...settings };
+    },
+
+    async fetchConnection(): Promise<ConnectionStatus> {
+      await delay(latencyMs);
+      return connectionStatus();
+    },
+
+    async setConnection(allowed: boolean): Promise<ConnectionStatus> {
+      await delay(latencyMs);
+      connectionAllowed = allowed;
+      return connectionStatus();
     },
 
     async createPairingCode(): Promise<PairingInfo> {

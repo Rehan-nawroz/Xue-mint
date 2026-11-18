@@ -604,8 +604,9 @@
   align-self: flex-start;
 }
 
-/* ---------------- Phone pairing ---------------- */
+/* ---------------- Phone connections and pairing ---------------- */
 
+.connection-panel,
 .pairing-panel {
   display: flex;
   align-items: center;
@@ -619,11 +620,13 @@
   box-shadow: var(--shadow);
 }
 
+.connection-panel h3,
 .pairing-panel h3 {
   margin: 0 0 5px;
   font-size: 1rem;
 }
 
+.connection-panel p,
 .pairing-panel p {
   margin: 0;
   max-width: 48ch;
@@ -632,8 +635,51 @@
   line-height: 1.5;
 }
 
+.connection-panel button,
 .pairing-panel button {
   flex: none;
+}
+
+.connection-panel__copy {
+  min-width: 0;
+}
+
+.connection-panel__state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px !important;
+  color: var(--text) !important;
+  font-size: 0.84rem !important;
+  font-weight: 600;
+}
+
+.connection-panel__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+
+.connection-panel__dot.is-allowed {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent);
+}
+
+.connection-panel__message {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px !important;
+  color: var(--text) !important;
+  font-size: 0.84rem !important;
+}
+
+.connection-panel__message.field__error {
+  color: var(--danger) !important;
 }
 
 .modal-backdrop {
@@ -914,6 +960,7 @@
     flex-direction: column;
   }
 
+  .connection-panel,
   .pairing-panel {
     flex-direction: column;
     align-items: flex-start;

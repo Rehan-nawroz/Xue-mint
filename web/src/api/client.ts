@@ -1,6 +1,7 @@
 import type { GalleryAsset } from '@xue-mint/shared';
 import type {
   GalleryApi,
+  ConnectionStatus,
   LibraryStatus,
   PairedDevice,
   PairingInfo,
@@ -181,6 +182,17 @@ export function createServerApi(): GalleryApi {
 
     createPairingCode(): Promise<PairingInfo> {
       return requestJson<PairingInfo>('/local/pairing', { method: 'POST' });
+    },
+
+    fetchConnection(): Promise<ConnectionStatus> {
+      return requestJson<ConnectionStatus>('/local/connection');
+    },
+
+    setConnection(allowed: boolean): Promise<ConnectionStatus> {
+      return requestJson<ConnectionStatus>('/local/connection', {
+        method: 'PUT',
+        body: JSON.stringify({ allowed }),
+      });
     },
   };
 }

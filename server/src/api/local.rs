@@ -8,6 +8,7 @@ use crate::auth::SESSION_COOKIE;
 use crate::certs;
 use crate::db::get_setting;
 use crate::errors::ApiError;
+use crate::firewall;
 use crate::media::{now_iso, sha256_hex};
 use crate::state::AppState;
 use crate::tokens;
@@ -295,6 +296,71 @@ pub async fn status(
         last_activity_at: assets.get("last_added"),
         last_device_seen_at: devices.get("last_seen"),
     }))
+}
+
+// ---------------------------------------------------------------------------
+// GET/PUT /local/connection - Windows Firewall access for phones
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionDto {
+    pub allowed: bool,
+    pub can_manage: bool,
+    pub platform: String,
+    pub port: u16,
+    pub addresses: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConnectionUpdate {
+    pub allowed: bool,
+}
+
+fn connection_dto(state: &AppState) -> ConnectionDto {
+    ConnectionDto {
+        allowed: firewall::rule_exists(),
+        can_manage: firewall::is_supported(),
+        platform: std::env::consts::OS.to_string(),
+        port: state.cfg.port,
+        addresses: lan_addresses(),
+    }
+}
+
+pub async fn get_connection(
+    State(state): State<AppState>,
+    _local: LocalOnly,
+) -> Result<Json<ConnectionDto>, ApiError> {
+    Ok(Json(connection_dto(&state)))
+}
+
+pub async fn set_connection(
+    State(state): State<AppState>,
+    _local: LocalOnly,
+    Json(update): Json<ConnectionUpdate>,
+) -> Result<Json<ConnectionDto>, ApiError> {
+    if !firewall::is_supported() {
+        return Err(ApiError::bad_request(
+            "Phone connection control is only available on Windows.",
+        ));
+    }
+
+    let allowed = update.allowed;
+    let result = tokio::task::spawn_blocking(move || {
+        if allowed {
+            firewall::add_rule()
+        } else {
+            firewall::remove_rule()
+        }
+    })
+    .await
+    .map_err(|error| ApiError::internal(error.to_string()))?;
+
+    if !result.ok {
+        return Err(ApiError::bad_request(result.message));
+    }
+
+    Ok(Json(connection_dto(&state)))
 }
 
 // ---------------------------------------------------------------------------

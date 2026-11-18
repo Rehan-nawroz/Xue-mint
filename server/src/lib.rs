@@ -7,6 +7,7 @@ pub mod certs;
 pub mod config;
 pub mod db;
 pub mod errors;
+pub mod firewall;
 pub mod ingest;
 pub mod media;
 pub mod state;
@@ -43,6 +44,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/local/pairing",
             get(api::local::pairing_info).post(api::local::pairing_code),
+        )
+        .route(
+            "/local/connection",
+            get(api::local::get_connection).put(api::local::set_connection),
         )
         .route("/local/status", get(api::local::status))
         .with_state(state);

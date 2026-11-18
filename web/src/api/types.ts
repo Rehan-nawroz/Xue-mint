@@ -36,6 +36,14 @@ export interface PairingInfo {
   expiresAt: string | null;
 }
 
+export interface ConnectionStatus {
+  allowed: boolean;
+  canManage: boolean;
+  platform: string;
+  port: number;
+  addresses: string[];
+}
+
 export interface ServerSettings {
   deleteBehavior: DeleteBehavior;
   photosFolder: string;
@@ -66,6 +74,8 @@ export interface GalleryApi {
   fetchSettings(): Promise<ServerSettings>;
   saveSettings(update: SettingsUpdate): Promise<ServerSettings>;
   createPairingCode(): Promise<PairingInfo>;
+  fetchConnection(): Promise<ConnectionStatus>;
+  setConnection(allowed: boolean): Promise<ConnectionStatus>;
 }
 
 export class GalleryApiError extends Error {

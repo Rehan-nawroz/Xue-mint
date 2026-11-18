@@ -5,7 +5,14 @@ import { DevicesPage } from '../components/DevicesPage';
 import { SettingsPage } from '../components/SettingsPage';
 import { StatusBar } from '../components/StatusBar';
 import { GalleryApiError } from '../api/types';
-import { defaultPairing, defaultSettings, defaultStatus, makeApi, makeDevice } from '../test/fixtures';
+import {
+  defaultConnection,
+  defaultPairing,
+  defaultSettings,
+  defaultStatus,
+  makeApi,
+  makeDevice,
+} from '../test/fixtures';
 
 describe('StatusBar', () => {
   it('shows library totals from the server', () => {
@@ -141,6 +148,53 @@ describe('SettingsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('allows and blocks phone connections from settings', async () => {
+    const setConnection = vi.fn(async (allowed: boolean) => ({
+      ...defaultConnection,
+      allowed,
+    }));
+    const api = makeApi({
+      fetchConnection: async () => defaultConnection,
+      setConnection,
+    });
+    const user = userEvent.setup();
+
+    render(<SettingsPage api={api} />);
+    expect(await screen.findByText('Phone connections are blocked')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Allow phone connections' }));
+    await waitFor(() => expect(setConnection).toHaveBeenCalledWith(true));
+    expect(await screen.findByText('Phones on this Wi-Fi can connect')).toBeInTheDocument();
+    expect(
+      screen.getByText('Phones on this Wi-Fi can now reach Xue-Mint.')
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Block phone connections' }));
+    await waitFor(() => expect(setConnection).toHaveBeenCalledWith(false));
+    expect(await screen.findByText('Phone connections are blocked')).toBeInTheDocument();
+  });
+
+  it('surfaces a firewall change that Windows refused', async () => {
+    const api = makeApi({
+      fetchConnection: async () => ({ ...defaultConnection, allowed: true }),
+      setConnection: async () => {
+        throw new Error('Windows did not remove the rule.');
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<SettingsPage api={api} />);
+    expect(await screen.findByText('Phones on this Wi-Fi can connect')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Block phone connections' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Windows did not remove the rule.'
+    );
+    expect(
+      screen.getByRole('button', { name: 'Block phone connections' })
+    ).toBeEnabled();
   });
 
   it('renders the saved delete behavior and reports server validation errors', async () => {

@@ -1,6 +1,7 @@
 import type { GalleryAsset } from '@xue-mint/shared';
 import type {
   GalleryApi,
+  ConnectionStatus,
   LibraryStatus,
   PairedDevice,
   PairingInfo,
@@ -62,6 +63,14 @@ export const defaultPairing: PairingInfo = {
   expiresAt: '2030-01-01T00:10:00.000Z',
 };
 
+export const defaultConnection: ConnectionStatus = {
+  allowed: false,
+  canManage: true,
+  platform: 'windows',
+  port: 8427,
+  addresses: ['192.168.1.24'],
+};
+
 export const defaultSettings: ServerSettings = {
   deleteBehavior: 'index_only',
   photosFolder: 'C:\\Photos',
@@ -95,6 +104,8 @@ export function makeApi(overrides: Partial<GalleryApi> = {}): GalleryApi {
     renameAsset: async (_id, filename) => filename,
     fetchSettings: async () => defaultSettings,
     createPairingCode: async () => defaultPairing,
+    fetchConnection: async () => defaultConnection,
+    setConnection: async (allowed) => ({ ...defaultConnection, allowed }),
     saveSettings: async (update) => ({
       ...defaultSettings,
       ...update,
