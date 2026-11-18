@@ -3,6 +3,7 @@ import type {
   GalleryApi,
   LibraryStatus,
   PairedDevice,
+  PairingInfo,
   ServerSettings,
 } from '../api/types';
 
@@ -49,6 +50,18 @@ export const defaultStatus: LibraryStatus = {
   lastDeviceSeenAt: '2024-01-15T09:00:00',
 };
 
+export const defaultPairing: PairingInfo = {
+  version: 1,
+  serverName: 'STUDIO-PC',
+  addresses: ['192.168.1.24'],
+  port: 8427,
+  fingerprint:
+    '4B:1E:9C:2A:77:0D:31:8F:6E:52:A0:CD:19:44:B8:7E:' +
+    '23:91:0F:5A:C7:64:D2:88:3B:EE:15:6D:9A:40:52:FC',
+  token: 'XM7K-4QDP',
+  expiresAt: '2030-01-01T00:10:00.000Z',
+};
+
 export const defaultSettings: ServerSettings = {
   deleteBehavior: 'index_only',
   photosFolder: 'C:\\Photos',
@@ -78,7 +91,10 @@ export function makeApi(overrides: Partial<GalleryApi> = {}): GalleryApi {
     fetchStatus: async () => defaultStatus,
     fetchDevices: async () => [],
     revokeDevice: async () => undefined,
+    deleteAsset: async () => undefined,
+    renameAsset: async (_id, filename) => filename,
     fetchSettings: async () => defaultSettings,
+    createPairingCode: async () => defaultPairing,
     saveSettings: async (update) => ({
       ...defaultSettings,
       ...update,

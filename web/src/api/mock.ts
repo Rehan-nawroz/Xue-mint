@@ -4,6 +4,7 @@ import type {
   GalleryApi,
   LibraryStatus,
   PairedDevice,
+  PairingInfo,
   ServerSettings,
   SettingsUpdate,
   TimelinePage,
@@ -70,7 +71,7 @@ function delay(ms: number): Promise<void> {
 export function createMockApi(options: MockOptions = {}): GalleryApi {
   const now = options.now ?? new Date();
   const latencyMs = options.latencyMs ?? 120;
-  const assets = options.empty ? [] : buildAssets(options.count ?? 240, now);
+  let assets = options.empty ? [] : buildAssets(options.count ?? 240, now);
   const revoked = new Set<string>();
   let settings: ServerSettings = {
     deleteBehavior: 'index_only',
@@ -104,15 +105,19 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
       await delay(latencyMs);
     },
 
-    async fetchTimeline(cursor = null, limit = 200): Promise<TimelinePage> {
+    async fetchTimeline(cursor = null, limit = 200, query = ''): Promise<TimelinePage> {
       await delay(latencyMs);
       const offset = cursor ? Number.parseInt(cursor, 10) || 0 : 0;
       const pageSize = Math.max(1, Math.min(limit, 500));
-      const items = assets.slice(offset, offset + pageSize);
+      const term = query.trim().toLowerCase();
+      const matches = term
+        ? assets.filter((asset) => (asset.filename ?? '').toLowerCase().includes(term))
+        : assets;
+      const items = matches.slice(offset, offset + pageSize);
       const next = offset + items.length;
       return {
         items,
-        nextCursor: next < assets.length ? String(next) : null,
+        nextCursor: next < matches.length ? String(next) : null,
       };
     },
 
@@ -145,9 +150,41 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
       revoked.add(id);
     },
 
+    async deleteAsset(id: string) {
+      await delay(latencyMs);
+      const index = assets.findIndex((asset) => asset.id === id);
+      if (index < 0) throw new GalleryApiError(404, 'ASSET_NOT_FOUND', 'No such asset.');
+      assets = [...assets.slice(0, index), ...assets.slice(index + 1)];
+    },
+
+    async renameAsset(id: string, filename: string) {
+      await delay(latencyMs);
+      const asset = assets.find((entry) => entry.id === id);
+      if (!asset) throw new GalleryApiError(404, 'ASSET_NOT_FOUND', 'No such asset.');
+      const next = filename.trim();
+      if (!next) throw new GalleryApiError(400, 'BAD_REQUEST', 'Enter a file name.');
+      asset.filename = next;
+      return next;
+    },
+
     async fetchSettings(): Promise<ServerSettings> {
       await delay(latencyMs);
       return { ...settings };
+    },
+
+    async createPairingCode(): Promise<PairingInfo> {
+      await delay(latencyMs);
+      return {
+        version: 1,
+        serverName: 'STUDIO-PC',
+        addresses: ['192.168.1.24'],
+        port: settings.activePort,
+        fingerprint:
+          '4B:1E:9C:2A:77:0D:31:8F:6E:52:A0:CD:19:44:B8:7E:' +
+          '23:91:0F:5A:C7:64:D2:88:3B:EE:15:6D:9A:40:52:FC',
+        token: 'XM7K-4QDP',
+        expiresAt: new Date(now.getTime() + 10 * 60_000).toISOString(),
+      };
     },
 
     async saveSettings(update: SettingsUpdate): Promise<ServerSettings> {

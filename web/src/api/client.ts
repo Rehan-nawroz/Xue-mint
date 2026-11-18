@@ -3,6 +3,7 @@ import type {
   GalleryApi,
   LibraryStatus,
   PairedDevice,
+  PairingInfo,
   ServerSettings,
   SettingsUpdate,
   TimelinePage,
@@ -128,10 +129,12 @@ export function createServerApi(): GalleryApi {
       );
     },
 
-    async fetchTimeline(cursor = null, limit = 200): Promise<TimelinePage> {
+    async fetchTimeline(cursor = null, limit = 200, search = ''): Promise<TimelinePage> {
       const params = new URLSearchParams();
       if (cursor) params.set('cursor', cursor);
       if (limit) params.set('limit', String(limit));
+      const trimmed = search.trim();
+      if (trimmed) params.set('q', trimmed);
       const query = params.toString();
       const dto = await requestJson<TimelineDto>(`/assets${query ? `?${query}` : ''}`);
       return {
@@ -153,6 +156,18 @@ export function createServerApi(): GalleryApi {
       await requestJson<void>(`/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
 
+    async deleteAsset(id: string) {
+      await requestJson<void>(`/assets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    },
+
+    async renameAsset(id: string, filename: string): Promise<string> {
+      const dto = await requestJson<{ filename: string }>(
+        `/assets/${encodeURIComponent(id)}`,
+        { method: 'PATCH', body: JSON.stringify({ filename }) }
+      );
+      return dto.filename;
+    },
+
     fetchSettings(): Promise<ServerSettings> {
       return requestJson<ServerSettings>('/local/settings');
     },
@@ -162,6 +177,10 @@ export function createServerApi(): GalleryApi {
         method: 'PUT',
         body: JSON.stringify(update),
       });
+    },
+
+    createPairingCode(): Promise<PairingInfo> {
+      return requestJson<PairingInfo>('/local/pairing', { method: 'POST' });
     },
   };
 }
