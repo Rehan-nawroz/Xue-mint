@@ -59,6 +59,49 @@ describe('App', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('searches the timeline by file name', async () => {
+    const assets = makeAssets(4, 15);
+    const fetchTimeline = vi.fn(
+      async (_cursor: string | null = null, _limit = 200, query = '') => ({
+        items: assets.filter((asset) =>
+          (asset.filename ?? '').toLowerCase().includes(query.toLowerCase())
+        ),
+        nextCursor: null,
+      })
+    );
+    const api = makeApi({ fetchTimeline, fetchStatus: async () => defaultStatus });
+    renderApp(api);
+
+    await screen.findAllByRole('button', { name: /Photo: IMG_/ });
+    fireEvent.change(screen.getByLabelText('Search photos by file name'), {
+      target: { value: 'IMG_2' },
+    });
+
+    expect(await screen.findByRole('button', { name: /Photo: IMG_2.jpg/ })).toBeInTheDocument();
+    await waitFor(() => expect(fetchTimeline).toHaveBeenLastCalledWith(null, 200, 'IMG_2'));
+    expect(screen.getAllByRole('button', { name: /Photo: IMG_/ })).toHaveLength(1);
+    expect(screen.getByText('1 match')).toBeInTheDocument();
+  });
+
+  it('clears a search that has no matches', async () => {
+    const assets = makeAssets(2, 15);
+    const fetchTimeline = vi.fn(async (_cursor: string | null = null, _limit = 200, query = '') => ({
+      items: assets.filter((asset) => (asset.filename ?? '').includes(query)),
+      nextCursor: null,
+    }));
+    const api = makeApi({ fetchTimeline, fetchStatus: async () => defaultStatus });
+    renderApp(api);
+
+    await screen.findAllByRole('button', { name: /Photo: IMG_/ });
+    fireEvent.change(screen.getByLabelText('Search photos by file name'), {
+      target: { value: 'nothing-matches' },
+    });
+
+    expect(await screen.findByText(/No photos match/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show all photos' }));
+    expect(await screen.findAllByRole('button', { name: /Photo: IMG_/ })).toHaveLength(2);
+  });
+
   it('switches to the settings view', async () => {
     const api = makeApi({
       fetchTimeline: async () => ({ items: makeAssets(2, 15), nextCursor: null }),
