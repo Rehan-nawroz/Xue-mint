@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent, TouchEvent } from 'react';
+import type { FormEvent, KeyboardEvent, TouchEvent } from 'react';
 import { assetDate, formatDateTime } from '../dates';
 import type { GalleryAsset } from '../types';
 import { isVideo } from '../types';
@@ -9,6 +9,10 @@ export interface ViewerProps {
   index: number;
   onClose: () => void;
   onIndexChange: (index: number) => void;
+  /** Removes the current asset; the viewer stays on the next available item. */
+  onDelete?: (asset: GalleryAsset) => Promise<void>;
+  /** Renames the current asset and resolves to the stored file name. */
+  onRename?: (asset: GalleryAsset, filename: string) => Promise<string>;
   /** Horizontal distance in pixels that counts as a swipe. */
   swipeThreshold?: number;
 }
@@ -26,12 +30,18 @@ export function Viewer({
   index,
   onClose,
   onIndexChange,
+  onDelete,
+  onRename,
   swipeThreshold = 50,
 }: ViewerProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const swipeStart = useRef<number | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [action, setAction] = useState<'rename' | 'delete' | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
   const asset = assets[index];
 
   const hasPrevious = index > 0;
@@ -68,12 +78,75 @@ export function Viewer({
   useEffect(() => {
     setFailedId(null);
     setAttempt(0);
+    setAction(null);
+    setActionError(null);
+    setWorking(false);
   }, [asset?.id]);
+
+  const closeAction = () => {
+    if (working) return;
+    setAction(null);
+    setActionError(null);
+  };
+
+  const openRename = () => {
+    if (!asset) return;
+    setRenameValue(asset.filename ?? '');
+    setActionError(null);
+    setAction('rename');
+  };
+
+  const openDelete = () => {
+    setActionError(null);
+    setAction('delete');
+  };
+
+  const submitRename = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!asset || !onRename || working) return;
+    const next = renameValue.trim();
+    if (!next) {
+      setActionError('Enter a file name.');
+      return;
+    }
+    setWorking(true);
+    setActionError(null);
+    try {
+      await onRename(asset, next);
+      setAction(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!asset || !onDelete || working) return;
+    setWorking(true);
+    setActionError(null);
+    try {
+      await onDelete(asset);
+      setAction(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWorking(false);
+    }
+  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      onClose();
+      if (action) closeAction();
+      else onClose();
+      return;
+    }
+    if (action) return;
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest('input, textarea, select')
+    ) {
       return;
     }
     if (event.key === 'ArrowLeft') {
@@ -146,6 +219,24 @@ export function Viewer({
         <span className="xm-viewer__counter">
           {index + 1} of {assets.length}
         </span>
+        {onRename || onDelete ? (
+          <div className="xm-viewer__actions">
+            {onRename ? (
+              <button type="button" className="xm-viewer__action" onClick={openRename}>
+                Rename
+              </button>
+            ) : null}
+            {onDelete ? (
+              <button
+                type="button"
+                className="xm-viewer__action xm-viewer__action--danger"
+                onClick={openDelete}
+              >
+                Delete
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <button
           type="button"
           className="xm-viewer__close"
@@ -220,6 +311,100 @@ export function Viewer({
       >
         ›
       </button>
+
+      {action ? (
+        <div
+          className="xm-viewer__dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeAction();
+          }}
+        >
+          <div
+            className="xm-viewer__dialog"
+            role={action === 'delete' ? 'alertdialog' : 'dialog'}
+            aria-modal="true"
+            aria-labelledby="xm-viewer-dialog-title"
+          >
+            <h2 id="xm-viewer-dialog-title">
+              {action === 'delete'
+                ? `Delete this ${isVideo(asset) ? 'video' : 'photo'}?`
+                : 'Rename this file'}
+            </h2>
+
+            {action === 'delete' ? (
+              <>
+                <p className="xm-viewer__dialog-copy">
+                  This removes it from the library. Your delete setting decides whether the
+                  file in the photos folder is removed too.
+                </p>
+                {actionError ? (
+                  <p className="xm-viewer__dialog-error" role="alert">
+                    {actionError}
+                  </p>
+                ) : null}
+                <div className="xm-viewer__dialog-actions">
+                  <button
+                    type="button"
+                    className="xm-viewer__dialog-button"
+                    disabled={working}
+                    onClick={closeAction}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="xm-viewer__dialog-button xm-viewer__dialog-button--danger"
+                    disabled={working}
+                    onClick={() => void confirmDelete()}
+                  >
+                    {working ? 'Deleting…' : `Delete ${isVideo(asset) ? 'video' : 'photo'}`}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <form onSubmit={(event) => void submitRename(event)}>
+                <label className="xm-viewer__dialog-label" htmlFor="xm-rename-input">
+                  File name
+                </label>
+                <input
+                  id="xm-rename-input"
+                  className="xm-viewer__dialog-input"
+                  value={renameValue}
+                  autoFocus
+                  disabled={working}
+                  spellCheck={false}
+                  onChange={(event) => setRenameValue(event.target.value)}
+                />
+                <p className="xm-viewer__dialog-hint">
+                  The extension stays the same. This renames the file in your photos folder.
+                </p>
+                {actionError ? (
+                  <p className="xm-viewer__dialog-error" role="alert">
+                    {actionError}
+                  </p>
+                ) : null}
+                <div className="xm-viewer__dialog-actions">
+                  <button
+                    type="button"
+                    className="xm-viewer__dialog-button"
+                    disabled={working}
+                    onClick={closeAction}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="xm-viewer__dialog-button xm-viewer__dialog-button--primary"
+                    disabled={working || !renameValue.trim()}
+                  >
+                    {working ? 'Renaming…' : 'Save name'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

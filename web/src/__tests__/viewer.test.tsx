@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Viewer } from '@xue-mint/shared';
 import { makeAsset } from '../test/fixtures';
 
@@ -70,6 +70,72 @@ describe('Viewer', () => {
     expect(screen.getByText('This file could not be loaded.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('renames the current file through the rename dialog', async () => {
+    const onRename = vi.fn(async (_asset, filename: string) => filename);
+    render(
+      <Viewer
+        assets={assets}
+        index={1}
+        onClose={() => undefined}
+        onIndexChange={() => undefined}
+        onRename={onRename}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const input = screen.getByLabelText('File name');
+    expect(input).toHaveValue('two.jpg');
+    fireEvent.change(input, { target: { value: 'Trip' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
+
+    await waitFor(() => expect(onRename).toHaveBeenCalledWith(assets[1], 'Trip'));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Rename this file' })).not.toBeInTheDocument()
+    );
+  });
+
+  it('confirms before deleting and reports server errors in the dialog', async () => {
+    const onDelete = vi.fn(async () => {
+      throw new Error('The file is no longer in the photos folder.');
+    });
+    render(
+      <Viewer
+        assets={assets}
+        index={0}
+        onClose={() => undefined}
+        onIndexChange={() => undefined}
+        onDelete={onDelete}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(screen.getByRole('alertdialog', { name: 'Delete this photo?' })).toBeInTheDocument();
+    expect(onDelete).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete photo' }));
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(assets[0]));
+    expect(
+      await screen.findByText('The file is no longer in the photos folder.')
+    ).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('keeps arrow-key navigation out of the rename field', () => {
+    const { onIndexChange } = renderViewer();
+    render(
+      <Viewer
+        assets={assets}
+        index={1}
+        onClose={() => undefined}
+        onIndexChange={onIndexChange}
+        onRename={async (_asset, filename) => filename}
+      />
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: 'Rename' })[0]);
+    fireEvent.keyDown(screen.getByLabelText('File name'), { key: 'ArrowRight' });
+    expect(onIndexChange).not.toHaveBeenCalled();
   });
 
   it('moves focus into the dialog and restores it when closed', () => {

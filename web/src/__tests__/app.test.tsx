@@ -102,6 +102,53 @@ describe('App', () => {
     expect(await screen.findAllByRole('button', { name: /Photo: IMG_/ })).toHaveLength(2);
   });
 
+  it('deletes the open photo and moves to the next one', async () => {
+    const assets = makeAssets(3, 15);
+    const deleteAsset = vi.fn(async () => undefined);
+    const api = makeApi({
+      fetchTimeline: async () => ({ items: assets, nextCursor: null }),
+      fetchStatus: async () => defaultStatus,
+      deleteAsset,
+    });
+    renderApp(api);
+
+    const tiles = await screen.findAllByRole('button', { name: /Photo: IMG_/ });
+    fireEvent.click(tiles[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete photo' }));
+
+    await waitFor(() => expect(deleteAsset).toHaveBeenCalledWith(assets[0].id));
+    expect(
+      await screen.findByRole('dialog', { name: 'Photo: IMG_1.jpg' })
+    ).toBeInTheDocument();
+  });
+
+  it('renames the open photo in place', async () => {
+    const assets = makeAssets(2, 15);
+    const renameAsset = vi.fn(async (_id: string, filename: string) => filename);
+    const api = makeApi({
+      fetchTimeline: async () => ({ items: assets, nextCursor: null }),
+      fetchStatus: async () => defaultStatus,
+      renameAsset,
+    });
+    renderApp(api);
+
+    const tiles = await screen.findAllByRole('button', { name: /Photo: IMG_/ });
+    fireEvent.click(tiles[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('File name'), {
+      target: { value: 'Summer trip.jpg' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
+
+    await waitFor(() =>
+      expect(renameAsset).toHaveBeenCalledWith(assets[0].id, 'Summer trip.jpg')
+    );
+    expect(
+      await screen.findByRole('dialog', { name: 'Photo: Summer trip.jpg' })
+    ).toBeInTheDocument();
+  });
+
   it('switches to the settings view', async () => {
     const api = makeApi({
       fetchTimeline: async () => ({ items: makeAssets(2, 15), nextCursor: null }),

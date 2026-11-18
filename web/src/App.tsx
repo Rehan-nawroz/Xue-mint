@@ -37,6 +37,18 @@ export function App({ api: providedApi }: AppProps = {}) {
     setViewerIndex(index);
   };
 
+  const deleteAsset = async (asset: GalleryAsset) => {
+    await api.deleteAsset(asset.id);
+    timeline.removeAsset(asset.id);
+    status.refresh();
+  };
+
+  const renameAsset = async (asset: GalleryAsset, filename: string) => {
+    const saved = await api.renameAsset(asset.id, filename);
+    timeline.renameAsset(asset.id, saved);
+    return saved;
+  };
+
   const activeIndex =
     viewerIndex === null
       ? null
@@ -97,6 +109,8 @@ export function App({ api: providedApi }: AppProps = {}) {
           index={activeIndex}
           onClose={() => setViewerIndex(null)}
           onIndexChange={setViewerIndex}
+          onDelete={deleteAsset}
+          onRename={renameAsset}
         />
       ) : null}
     </div>
