@@ -6,19 +6,21 @@
   "workspaces": [
     "shared",
     "web",
+    "mobile",
     "desktop"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "npm run build -w @xue-mint/shared && npm run build -w @xue-mint/web && npm run build -w @xue-mint/desktop && npm run prepare:resources -w @xue-mint/desktop",
+    "build": "npm run build -w @xue-mint/shared && npm run build -w @xue-mint/web && npm run build -w @xue-mint/mobile && npm run build -w @xue-mint/desktop && npm run prepare:resources -w @xue-mint/desktop",
     "dev": "npm run build -w @xue-mint/shared && npm run dev -w @xue-mint/web",
     "dev:desktop": "npm run tauri:dev -w @xue-mint/desktop",
     "desktop:build": "npm run build && npm run tauri:build -w @xue-mint/desktop",
     "test": "npm run build -w @xue-mint/shared && npm run test -w @xue-mint/web",
-    "lint": "npm run lint -w @xue-mint/shared && npm run lint -w @xue-mint/web && npm run lint -w @xue-mint/desktop",
-    "typecheck": "npm run build -w @xue-mint/shared && npm run typecheck -w @xue-mint/web && npm run typecheck -w @xue-mint/desktop",
+    "lint": "npm run lint -w @xue-mint/shared && npm run lint -w @xue-mint/web && npm run lint -w @xue-mint/mobile && npm run lint -w @xue-mint/desktop",
+    "typecheck": "npm run build -w @xue-mint/shared && npm run typecheck -w @xue-mint/web && npm run typecheck -w @xue-mint/mobile && npm run typecheck -w @xue-mint/desktop",
+    "test:e2e:mobile": "npm run test:e2e -w @xue-mint/mobile",
     "check": "npm run lint && npm run test && npm run typecheck && npm run build"
   }
 }

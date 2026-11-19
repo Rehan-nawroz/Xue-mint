@@ -43,6 +43,8 @@ Thumbs.db
 # Local test artifacts
 tmp/
 *.log
+mobile/playwright-report/
+mobile/test-results/
 /docs
 web/README.md
 desktop/README.md
@@ -50,3 +52,4 @@ mobile/README.md
 assets/brand/README.md
 server/README.md
 shared/README.md
+/.qoder-input-images

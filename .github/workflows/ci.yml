@@ -55,3 +55,29 @@ jobs:
           npm run lint
           npm run test
           npm run build
+
+  mobile:
+    name: Mobile (TypeScript) — lint, build and screenshots
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install workspace dependencies
+        if: hashFiles('package-lock.json') != ''
+        run: npm ci
+      - name: Lint, typecheck and build mobile
+        if: hashFiles('package-lock.json') != ''
+        run: |
+          npm run build -w @xue-mint/shared
+          npm run lint -w @xue-mint/mobile
+          npm run typecheck -w @xue-mint/mobile
+          npm run build -w @xue-mint/mobile
+      - name: Install Playwright Chromium
+        if: hashFiles('package-lock.json') != ''
+        run: npx playwright install chromium
+      - name: Run screenshot and mock-flow tests
+        if: hashFiles('package-lock.json') != ''
+        run: npm run test:e2e -w @xue-mint/mobile
