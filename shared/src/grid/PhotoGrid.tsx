@@ -26,6 +26,8 @@ export interface PhotoGridProps {
   onEndReached?: () => void;
   /** Side inset that aligns tiles with the surrounding page chrome. */
   horizontalPadding?: number;
+  /** Shows the file-name line under each tile. Mobile timelines usually hide it. */
+  showCaptions?: boolean;
   /** Fallback measurements for environments without ResizeObserver. */
   initialWidth?: number;
   initialViewportHeight?: number;
@@ -43,9 +45,16 @@ interface TileProps {
   index: number;
   onOpen: (asset: GalleryAsset, index: number) => void;
   onStepFocus: (index: number, direction: -1 | 1) => void;
+  showCaption: boolean;
 }
 
-const Tile = memo(function Tile({ asset, index, onOpen, onStepFocus }: TileProps) {
+const Tile = memo(function Tile({
+  asset,
+  index,
+  onOpen,
+  onStepFocus,
+  showCaption,
+}: TileProps) {
   const [failed, setFailed] = useState(false);
   const name = asset.filename?.trim() || (isVideo(asset) ? 'Untitled video' : 'Untitled photo');
 
@@ -87,9 +96,11 @@ const Tile = memo(function Tile({ asset, index, onOpen, onStepFocus }: TileProps
           </span>
         ) : null}
       </span>
-      <span className="xm-tile__name" title={name}>
-        {name}
-      </span>
+      {showCaption ? (
+        <span className="xm-tile__name" title={name}>
+          {name}
+        </span>
+      ) : null}
     </button>
   );
 });
@@ -110,6 +121,7 @@ export function PhotoGrid({
   overscan = 3,
   onEndReached,
   horizontalPadding = 16,
+  showCaptions = true,
   initialWidth = 1024,
   initialViewportHeight = 800,
   className,
@@ -122,8 +134,14 @@ export function PhotoGrid({
   const groups = useMemo(() => groupAssetsByDay([...assets]), [assets]);
   const contentWidth = Math.max(1, width - horizontalPadding * 2);
   const layout = useMemo(
-    () => buildGridLayout(groups, contentWidth, { minTileSize, gap, headerHeight }),
-    [groups, contentWidth, minTileSize, gap, headerHeight]
+    () =>
+      buildGridLayout(groups, contentWidth, {
+        minTileSize,
+        gap,
+        headerHeight,
+        captionHeight: showCaptions ? undefined : 0,
+      }),
+    [groups, contentWidth, minTileSize, gap, headerHeight, showCaptions]
   );
   const range = visibleRowRange(layout.rows, scrollTop, viewportHeight, overscan);
   const label = pinnedLabel(layout.rows, scrollTop);
@@ -223,6 +241,7 @@ export function PhotoGrid({
                     index={index}
                     onOpen={onOpen}
                     onStepFocus={stepFocus}
+                    showCaption={showCaptions}
                   />
                 ))}
               </div>
