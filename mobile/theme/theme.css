@@ -1,47 +1,85 @@
 /* ============================================================
-   /mobile/theme/theme.css — Mobile app theme (design tokens)
-   SINGLE THEME FILE for the mobile app (React + Tailwind).
-   Brand colors come ONLY from /assets/brand (palette.md).
-   Tailwind consumes these CSS custom properties; token names
-   match /shared/theme/theme.css so both apps stay in sync.
+   Mobile app theme — the single token file for this app.
+   Brand colors come ONLY from /assets/brand.
+   Light tokens are the default; dark tokens override for an explicit
+   dark choice or when the OS asks for dark and no choice is pinned.
    ============================================================ */
 
 :root {
+  color-scheme: light;
+
   /* Brand (from /assets/brand — do not hard-code elsewhere) */
-  --brand-primary: #3A6EA5;
-  --brand-primary-dark: #2C5480;
-  --brand-accent: #E8A33D;
+  --brand-primary: #3a6ea5;
+  --brand-primary-dark: #2c5480;
+  --brand-accent: #e8a33d;
 
   /* Light surfaces */
-  --bg: #FAFAFA;
-  --surface: #FFFFFF;
-  --text: #1C1B1F;
-  --text-muted: #5F5E58;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f1f0ec;
+  --text: #1c1b1f;
+  --text-muted: #5f5e58;
+  --border: #dcdad3;
 
   /* States */
-  --danger: #B3261E;
-  --success: #2E6B3F;
+  --danger: #b3261e;
+  --danger-soft: #fbeceb;
+  --success: #2e6b3f;
+  --success-soft: #eaf3ec;
+  --warning-soft: #fdf3e3;
 
-  /* Mobile-specific */
-  --nav-height: 56px;        /* bottom navigation */
-  --status-bar-height: 28px; /* backup status bar */
-  --grid-gap: 2px;           /* Google Photos uses a tighter grid on mobile */
+  /* Typography + shape */
+  --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --date-header-size: 0.95rem;
+  --radius: 8px;
+  --radius-lg: 16px;
+  --shadow: 0 1px 3px rgba(20, 20, 24, 0.14);
+
+  /* Mobile chrome */
+  --nav-height: 62px;
+  --status-bar-height: 34px;
+  --grid-gap: 3px;
   --thumb-min: 96px;
 }
 
-/* Dark mode: follows OS preference ( Capacitor WebView reports it ) */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --brand-primary: #6B9BD1;
-    --bg: #1C1B1F;
-    --surface: #2B2930;
-    --text: #ECEBE4;
-    --text-muted: #A5A29A;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --brand-primary: #6b9bd1;
+    --brand-primary-dark: #8fb6e0;
+    --bg: #1c1b1f;
+    --surface: #2b2930;
+    --surface-2: #35333b;
+    --text: #ecebe4;
+    --text-muted: #a5a29a;
+    --border: #47454d;
+    --danger: #f2b8b5;
+    --danger-soft: #3d2422;
+    --success: #9ed3ad;
+    --success-soft: #22301f;
+    --warning-soft: #3a3125;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   }
 }
 
-body {
-  font-family: system-ui, Roboto, sans-serif;
-  background: var(--bg);
-  color: var(--text);
+[data-theme="dark"] {
+  color-scheme: dark;
+  --brand-primary: #6b9bd1;
+  --brand-primary-dark: #8fb6e0;
+  --bg: #1c1b1f;
+  --surface: #2b2930;
+  --surface-2: #35333b;
+  --text: #ecebe4;
+  --text-muted: #a5a29a;
+  --border: #47454d;
+  --danger: #f2b8b5;
+  --danger-soft: #3d2422;
+  --success: #9ed3ad;
+  --success-soft: #22301f;
+  --warning-soft: #3a3125;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
 }

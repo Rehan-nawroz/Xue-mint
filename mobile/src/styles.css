@@ -1,0 +1,177 @@
+@import "tailwindcss";
+@import "../theme/theme.css";
+
+/* Vite's root differs from this stylesheet's folder in a workspace, so point
+   Tailwind at the app sources explicitly instead of relying on auto-detection. */
+@source "../src";
+
+/* Semantic Tailwind colors mapped onto the single mobile theme file. */
+@theme inline {
+  --color-app: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-line: var(--border);
+  --color-brand: var(--brand-primary);
+  --color-brand-dark: var(--brand-primary-dark);
+  --color-accent: var(--brand-accent);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning-soft: var(--warning-soft);
+  --font-sans: var(--font-sans);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  height: 100dvh;
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+@media (min-width: 600px) {
+  .app-shell {
+    border-inline: 1px solid var(--border);
+    box-shadow: 0 0 48px rgba(20, 20, 24, 0.12);
+  }
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Mobile timeline: edge-to-edge, square tiles, no captions. */
+.mobile-timeline .xm-grid__pin {
+  height: 44px;
+  padding: 0 12px;
+  font-size: var(--date-header-size);
+}
+
+.mobile-timeline .xm-grid__date {
+  padding: 8px 12px;
+  font-size: var(--date-header-size);
+}
+
+.mobile-timeline .xm-tile__media {
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.mobile-timeline .xm-tile:hover .xm-tile__media {
+  box-shadow: none;
+}
+
+.mobile-timeline .xm-tile:focus-visible .xm-tile__media {
+  box-shadow: 0 0 0 2px var(--brand-primary);
+}
+
+.mobile-timeline .xm-grid__scroll {
+  scrollbar-width: none;
+}
+
+.mobile-timeline .xm-grid__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* The phone viewer is fully opaque: nothing behind it should show through. */
+.xm-viewer {
+  background: #0c0c0e;
+}
+
+/* Shared viewer sits above the bottom navigation. */
+.xm-viewer__stage {
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
+@media (max-width: 640px) {
+  .xm-viewer__bar {
+    padding-top: calc(12px + env(safe-area-inset-top));
+  }
+}
+
+/* Toggle switch used by the backup settings. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: var(--border);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.switch[aria-checked="true"] {
+  background: var(--brand-primary);
+}
+
+.switch__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 20, 24, 0.3);
+  transition: transform 150ms ease;
+}
+
+.switch[aria-checked="true"] .switch__thumb {
+  transform: translateX(18px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* Smooth page scrolling inside the fixed shell. */
+.screen-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
