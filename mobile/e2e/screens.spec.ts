@@ -146,3 +146,35 @@ test('back up now on an offline PC pauses with a clear message', async ({ page }
   await page.getByRole('button', { name: 'Photos' }).click();
   await expect(page.getByTestId('backup-status')).toContainText('PC not reachable');
 });
+
+test('phone library shows backup badges and opens the viewer', async ({ page }) => {
+  await page.goto('/?latency=0');
+  await waitForLibrary(page);
+  await page.getByRole('button', { name: 'Library' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Library' })).toBeVisible();
+  const grid = page.getByLabel('Phone library');
+  await expect(grid).toBeVisible();
+  await expect(page.locator('.xm-tile__flag').first()).toBeVisible();
+  await page.locator('[data-xm-tile="0"]').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Close viewer' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('deleting from the PC library removes the photo and refreshes the status', async ({ page }) => {
+  await page.goto('/?latency=0');
+  await waitForLibrary(page);
+  const tilesBefore = await page.locator('[data-xm-tile]').count();
+  await page.locator('[data-xm-tile="0"]').click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Delete photo' })
+    .click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Close viewer' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const tilesAfter = await page.locator('[data-xm-tile]').count();
+  expect(tilesAfter).toBeLessThan(tilesBefore);
+});

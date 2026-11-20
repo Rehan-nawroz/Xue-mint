@@ -1,53 +1,139 @@
-import type { ReactNode } from 'react';
-import type { BackupStatus, EngineMode } from '../engine';
-import { CheckCircleIcon, CloudIcon, PhoneIcon, SearchIcon } from '../components/icons';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { EmptyState, PhotoGrid, Viewer } from '@xue-mint/shared';
+import type { GalleryAsset } from '@xue-mint/shared';
+import type { BackupStatus, EngineMode, PhonePhotoState } from '../engine';
+import { AlertIcon, CheckCircleIcon, CloudIcon, CloudOffIcon, SearchIcon } from '../components/icons';
 
 interface LibraryScreenProps {
+  engine: import('../engine').BackupEngine;
   status: BackupStatus | null;
   mode: EngineMode;
   onPair: () => void;
 }
 
-function StatCard({
-  title,
-  value,
-  detail,
-  icon,
-  tone = 'neutral',
-}: {
-  title: string;
-  value: string;
-  detail: string;
-  icon: ReactNode;
-  tone?: 'neutral' | 'ok' | 'warn';
-}) {
-  const toneClass =
-    tone === 'ok'
-      ? 'bg-success-soft text-success'
-      : tone === 'warn'
-        ? 'bg-warning-soft text-ink'
-        : 'bg-surface-2 text-brand';
+interface PhoneLibraryState {
+  assets: GalleryAsset[];
+  states: PhonePhotoState[];
+  loading: boolean;
+  error: string | null;
+}
+
+const PAGE_SIZE = 120;
+
+/** Small badge over each library tile showing that photo's backup state. */
+function backupBadge(state: PhonePhotoState['state']) {
+  if (state === 'backedUp') {
+    return (
+      <span title="Backed up">
+        <CheckCircleIcon className="h-3 w-3" />
+      </span>
+    );
+  }
+  if (state === 'uploading' || state === 'missing') {
+    return (
+      <span title={state === 'uploading' ? 'Uploading' : 'Waiting to back up'}>
+        <CloudIcon className="h-3 w-3" />
+      </span>
+    );
+  }
+  if (state === 'failed') {
+    return (
+      <span title="Failed">
+        <AlertIcon className="h-3 w-3" />
+      </span>
+    );
+  }
   return (
-    <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">{title}</p>
-          <p className="mt-1 text-[22px] font-bold leading-none">{value}</p>
-        </div>
-        <span className={`flex h-9 w-9 items-center justify-center rounded-full ${toneClass}`}>
-          {icon}
-        </span>
-      </div>
-      <p className="mt-2 text-[12px] leading-snug text-muted">{detail}</p>
-    </div>
+    <span title="Not checked yet">
+      <CloudOffIcon className="h-3 w-3" />
+    </span>
   );
 }
 
-export function LibraryScreen({ status, mode, onPair }: LibraryScreenProps) {
+function badgeKey(state: PhonePhotoState['state']): string {
+  return state;
+}
+
+export function LibraryScreen({
+  engine,
+  status,
+  mode,
+  onPair,
+}: LibraryScreenProps) {
   const phonePhotos = status?.phonePhotos ?? 0;
   const backedUp = status?.backedUp ?? 0;
   const pending = status?.pending ?? 0;
+  const failed = status?.failed ?? 0;
   const progress = phonePhotos > 0 ? Math.round((backedUp / phonePhotos) * 100) : 0;
+
+  const [library, setLibrary] = useState<PhoneLibraryState>({
+    assets: [],
+    states: [],
+    loading: true,
+    error: null,
+  });
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    setLibrary((current) => ({ ...current, loading: true, error: null }));
+    try {
+      const states = await engine.photoStates(PAGE_SIZE * 2);
+      setLibrary({
+        assets: [],
+        states,
+        loading: false,
+        error: null,
+      });
+    } catch (cause) {
+      setLibrary({
+        assets: [],
+        states: [],
+        loading: false,
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  }, [engine]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Follow live status so badges and counters track backup passes.
+  useEffect(() => {
+    const unsubscribe = engine.subscribe((next) => {
+      if (next.phase === 'idle') void load();
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [engine, load]);
+
+  const gridAssets = useMemo(
+    () =>
+      library.states.map((state) => ({
+        id: `phone-${state.photo.id}`,
+        type: 'photo' as const,
+        filename: state.photo.filename,
+        takenAt: state.photo.takenAt,
+        addedAt: state.photo.takenAt,
+        width: state.photo.width,
+        height: state.photo.height,
+        size: state.photo.size,
+        thumbUrl: state.thumbUrl ?? '',
+        originalUrl: state.originalUrl ?? '',
+      } satisfies GalleryAsset)),
+    [library.states]
+  );
+
+  const stateById = useMemo(() => {
+    const map = new Map<string, PhonePhotoState['state']>();
+    library.states.forEach((state) => map.set(`phone-${state.photo.id}`, state.state));
+    return map;
+  }, [library.states]);
+
+  const visibleCount = Math.min(pageSize, gridAssets.length);
+  const visibleAssets = gridAssets.slice(0, visibleCount);
 
   return (
     <div className="screen-scroll min-h-0 flex-1 overflow-y-auto bg-app">
@@ -59,7 +145,6 @@ export function LibraryScreen({ status, mode, onPair }: LibraryScreenProps) {
       <div className="space-y-3 px-4 pb-6">
         <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
           <div className="flex items-center gap-2">
-            <PhoneIcon className="h-4 w-4 text-brand" />
             <h2 className="text-[13px] font-semibold">On this phone</h2>
             <span className="ml-auto rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-muted">
               {mode === 'mock' ? 'Sample data' : 'This device'}
@@ -80,26 +165,80 @@ export function LibraryScreen({ status, mode, onPair }: LibraryScreenProps) {
           </div>
           <div className="mt-3 flex items-center justify-between text-[11px] text-muted">
             <span>{backedUp} on your PC</span>
-            <span>{pending} waiting</span>
+            <span>
+              {pending} waiting
+              {failed > 0 ? ` · ${failed} failed` : ''}
+            </span>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <StatCard
-            title="Backup queue"
-            value={String(pending)}
-            detail={pending === 0 ? 'Nothing waiting to upload' : 'Will send when your PC is reachable'}
-            icon={<CloudIcon className="h-4 w-4" />}
-            tone={pending === 0 ? 'ok' : 'neutral'}
-          />
-          <StatCard
-            title="Last backup"
-            value={status?.lastBackupAt ? 'Recent' : '—'}
-            detail={status?.lastBackupAt ? 'Photos are up to date' : 'No backup has run yet'}
-            icon={<CheckCircleIcon className="h-4 w-4" />}
-            tone={status?.lastBackupAt ? 'ok' : 'warn'}
-          />
-        </div>
+        <section>
+          <div className="flex items-center justify-between px-1 pb-2">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+              Phone photos
+            </h2>
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-brand"
+              onClick={() => void load()}
+            >
+              {library.loading ? 'Reading…' : 'Refresh'}
+            </button>
+          </div>
+          {library.error ? (
+            <EmptyState
+              tone="error"
+              title="Could not read the phone library"
+              description={library.error}
+              actionLabel="Try again"
+              onAction={() => void load()}
+            />
+          ) : library.loading && gridAssets.length === 0 ? (
+            <EmptyState busy title="Reading your phone library" description="Listing the photos on this device." />
+          ) : gridAssets.length === 0 ? (
+            <EmptyState
+              title="No photos found"
+              description="Grant photo access in Settings to let the engine read the library."
+              actionLabel="Pair with your PC"
+              onAction={onPair}
+            />
+          ) : (
+            <div className="rounded-2xl border border-line bg-surface p-1 shadow-sm">
+              <PhotoGrid
+                assets={visibleAssets}
+                onOpen={(_asset, index) => setViewerIndex(index)}
+                ariaLabel="Phone library"
+                minTileSize={104}
+                gap={2}
+                headerHeight={40}
+                horizontalPadding={4}
+                showCaptions={false}
+                initialWidth={390}
+                tileBadge={(asset) => backupBadge(stateById.get(asset.id) ?? 'new')}
+                tileBadgeKey={(asset) => badgeKey(stateById.get(asset.id) ?? 'new')}
+                onEndReached={
+                  visibleCount < gridAssets.length
+                    ? () => setPageSize((current) => current + PAGE_SIZE)
+                    : undefined
+                }
+              />
+              {visibleCount < gridAssets.length ? (
+                <button
+                  type="button"
+                  className="mx-auto mb-2 block rounded-full border border-line px-3 py-1.5 text-[11px] font-semibold text-ink"
+                  onClick={() => setPageSize((current) => current + PAGE_SIZE)}
+                >
+                  Show more ({gridAssets.length - visibleCount} left)
+                </button>
+              ) : null}
+            </div>
+          )}
+          <p className="mt-2 px-1 text-[10px] leading-relaxed text-muted">
+            Every tile carries its backup state: a green check means the PC has
+            the photo, a cloud means it is queued or uploading, a red mark
+            means the last attempt failed.
+          </p>
+        </section>
 
         <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
           <label className="flex items-center gap-2 rounded-full border border-line bg-app px-3 py-2 text-muted">
@@ -140,6 +279,17 @@ export function LibraryScreen({ status, mode, onPair }: LibraryScreenProps) {
           </button>
         ) : null}
       </div>
+
+      {viewerIndex !== null && gridAssets[viewerIndex] ? (
+        <Viewer
+          key="phone-viewer"
+          assets={gridAssets}
+          index={viewerIndex}
+          onClose={() => setViewerIndex(null)}
+          onIndexChange={setViewerIndex}
+          swipeThreshold={40}
+        />
+      ) : null}
     </div>
   );
 }

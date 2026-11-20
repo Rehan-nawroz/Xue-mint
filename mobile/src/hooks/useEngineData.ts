@@ -131,6 +131,8 @@ export interface TimelineState {
   hasMore: boolean;
   loadMore: () => void;
   retry: () => void;
+  /** Drops one asset from the loaded pages after a successful delete. */
+  remove: (assetId: string) => void;
 }
 
 /** Loads the PC timeline through the engine, one cursor page at a time. */
@@ -189,6 +191,10 @@ export function useTimeline(engine: BackupEngine): TimelineState {
       });
   }, [cursor, engine]);
 
+  const remove = useCallback((assetId: string) => {
+    setAssets((existing) => existing.filter((asset) => asset.id !== assetId));
+  }, []);
+
   return {
     assets,
     loading,
@@ -198,5 +204,6 @@ export function useTimeline(engine: BackupEngine): TimelineState {
     hasMore: cursor !== null,
     loadMore,
     retry: loadFirst,
+    remove,
   };
 }

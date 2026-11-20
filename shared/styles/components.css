@@ -149,6 +149,26 @@
   line-height: 1;
 }
 
+/* Small state indicator over a tile, e.g. a per-photo backup state. */
+.xm-tile__flag {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+
+.xm-tile__flag svg {
+  width: 12px;
+  height: 12px;
+}
+
 .xm-tile:hover .xm-tile__image {
   filter: brightness(0.94);
 }

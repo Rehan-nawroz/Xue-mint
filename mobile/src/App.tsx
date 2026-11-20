@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Viewer } from '@xue-mint/shared';
+import type { GalleryAsset } from '@xue-mint/shared';
 import { AppScreen, BottomNav } from './components/BottomNav';
 import { PairPcDialog } from './components/PairPcDialog';
 import { createDiagnostics, createEngine } from './engine';
@@ -34,6 +35,13 @@ export function App() {
     await statusState.refresh();
   };
 
+  /** Deletes the asset from the PC's index and refreshes what the UI shows. */
+  const handleDelete = async (asset: GalleryAsset) => {
+    await engine.deleteAsset(asset.id);
+    timeline.remove(asset.id);
+    statusState.refresh();
+  };
+
   return (
     <div className="app-shell text-ink">
       <main className="flex min-h-0 flex-1 flex-col">
@@ -49,6 +57,7 @@ export function App() {
           />
         ) : screen === 'library' ? (
           <LibraryScreen
+            engine={engine}
             status={statusState.status}
             mode={engine.mode}
             onPair={() => setPairOpen(true)}
@@ -77,6 +86,7 @@ export function App() {
           index={activeIndex}
           onClose={() => setViewerIndex(null)}
           onIndexChange={setViewerIndex}
+          onDelete={handleDelete}
         />
       ) : null}
 

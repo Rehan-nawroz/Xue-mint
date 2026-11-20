@@ -32,6 +32,13 @@ export interface PhotoGridProps {
   initialWidth?: number;
   initialViewportHeight?: number;
   className?: string;
+  /**
+   * Optional small indicator drawn over each tile, e.g. a backup state.
+   * Rendered only when the tile's badge key changes, so stateful grids do
+   * not re-render every tile on scroll.
+   */
+  tileBadge?: (asset: GalleryAsset) => ReactNode;
+  tileBadgeKey?: (asset: GalleryAsset) => string;
 }
 
 function describeAsset(asset: GalleryAsset): string {
@@ -46,64 +53,81 @@ interface TileProps {
   onOpen: (asset: GalleryAsset, index: number) => void;
   onStepFocus: (index: number, direction: -1 | 1) => void;
   showCaption: boolean;
+  badge?: ReactNode;
+  badgeKey?: string;
 }
 
-const Tile = memo(function Tile({
-  asset,
-  index,
-  onOpen,
-  onStepFocus,
-  showCaption,
-}: TileProps) {
-  const [failed, setFailed] = useState(false);
-  const name = asset.filename?.trim() || (isVideo(asset) ? 'Untitled video' : 'Untitled photo');
+const Tile = memo(
+  function Tile({
+    asset,
+    index,
+    onOpen,
+    onStepFocus,
+    showCaption,
+    badge,
+  }: TileProps) {
+    const [failed, setFailed] = useState(false);
+    const name = asset.filename?.trim() || (isVideo(asset) ? 'Untitled video' : 'Untitled photo');
 
-  return (
-    <button
-      type="button"
-      className="xm-tile"
-      data-xm-tile={index}
-      aria-label={describeAsset(asset)}
-      onClick={() => onOpen(asset, index)}
-      onKeyDown={(event) => {
-        if (event.key === 'ArrowRight') {
-          event.preventDefault();
-          onStepFocus(index, 1);
-        } else if (event.key === 'ArrowLeft') {
-          event.preventDefault();
-          onStepFocus(index, -1);
-        }
-      }}
-    >
-      <span className="xm-tile__media">
-        {failed ? (
-          <span className="xm-tile__fallback" aria-hidden="true">
-            <span className="xm-tile__fallback-mark" />
-          </span>
-        ) : (
-          <img
-            className="xm-tile__image"
-            src={asset.thumbUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            onError={() => setFailed(true)}
-          />
-        )}
-        {isVideo(asset) ? (
-          <span className="xm-tile__badge" aria-hidden="true">
-            ▶
+    return (
+      <button
+        type="button"
+        className="xm-tile"
+        data-xm-tile={index}
+        aria-label={describeAsset(asset)}
+        onClick={() => onOpen(asset, index)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            onStepFocus(index, 1);
+          } else if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            onStepFocus(index, -1);
+          }
+        }}
+      >
+        <span className="xm-tile__media">
+          {failed ? (
+            <span className="xm-tile__fallback" aria-hidden="true">
+              <span className="xm-tile__fallback-mark" />
+            </span>
+          ) : (
+            <img
+              className="xm-tile__image"
+              src={asset.thumbUrl}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setFailed(true)}
+            />
+          )}
+          {isVideo(asset) ? (
+            <span className="xm-tile__badge" aria-hidden="true">
+              ▶
+            </span>
+          ) : null}
+          {badge != null ? (
+            <span className="xm-tile__flag" aria-hidden="true">
+              {badge}
+            </span>
+          ) : null}
+        </span>
+        {showCaption ? (
+          <span className="xm-tile__name" title={name}>
+            {name}
           </span>
         ) : null}
-      </span>
-      {showCaption ? (
-        <span className="xm-tile__name" title={name}>
-          {name}
-        </span>
-      ) : null}
-    </button>
-  );
-});
+      </button>
+    );
+  },
+  (previous, next) =>
+    previous.asset === next.asset &&
+    previous.index === next.index &&
+    previous.onOpen === next.onOpen &&
+    previous.onStepFocus === next.onStepFocus &&
+    previous.showCaption === next.showCaption &&
+    previous.badgeKey === next.badgeKey
+);
 
 /**
  * Date-grouped, virtualized square-tile grid. Only the rows intersecting the
@@ -125,6 +149,8 @@ export function PhotoGrid({
   initialWidth = 1024,
   initialViewportHeight = 800,
   className,
+  tileBadge,
+  tileBadgeKey,
 }: PhotoGridProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(initialWidth);
@@ -242,6 +268,8 @@ export function PhotoGrid({
                     onOpen={onOpen}
                     onStepFocus={stepFocus}
                     showCaption={showCaptions}
+                    badge={tileBadge?.(asset)}
+                    badgeKey={tileBadgeKey?.(asset)}
                   />
                 ))}
               </div>
