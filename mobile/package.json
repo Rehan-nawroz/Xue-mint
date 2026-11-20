@@ -17,6 +17,7 @@
     "cap:open": "cap open android"
   },
   "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^8.2.2",
     "@capacitor/android": "^8.6.2",
     "@capacitor/core": "^8.6.2",
     "@xue-mint/shared": "*",

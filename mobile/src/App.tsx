@@ -57,6 +57,7 @@ export function App() {
             saving={settingsState.saving}
             onSettingsChange={settingsState.save}
             onPair={() => setPairOpen(true)}
+            onRetryStatus={statusState.refresh}
             diagnostics={diagnostics}
           />
         )}

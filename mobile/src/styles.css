@@ -119,6 +119,22 @@ body {
   }
 }
 
+/* The camera preview for QR pairing renders behind the WebView, so the page
+   must be transparent and only the scanning overlay may stay visible. */
+html.barcode-scanner-active,
+body.barcode-scanner-active {
+  background: transparent !important;
+}
+
+body.barcode-scanner-active #root {
+  visibility: hidden;
+}
+
+body.barcode-scanner-active .pairing-scanner {
+  visibility: visible;
+  background: transparent;
+}
+
 /* Toggle switch used by the backup settings. */
 .switch {
   position: relative;

@@ -1,4 +1,5 @@
 import type { GalleryAsset } from '@xue-mint/shared';
+import { parsePairingPayload } from './pairing';
 import type {
   BackupEngine,
   BackupStatus,
@@ -106,32 +107,6 @@ function fakeHash(photo: PhonePhoto): string {
     hash += seed.charCodeAt(i % seed.length).toString(16).padStart(2, '0').slice(-1);
   }
   return hash;
-}
-
-function parsePayload(payload: PairingPayload | string): PairingPayload {
-  if (typeof payload !== 'string') return payload;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payload);
-  } catch {
-    throw new Error('That pairing code is not valid JSON. Scan the code again.');
-  }
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('That pairing code is missing its PC details.');
-  }
-  const value = parsed as Partial<PairingPayload>;
-  if (!value.serverName || !value.port || !value.fingerprint) {
-    throw new Error('That pairing code is missing its PC name, port or fingerprint.');
-  }
-  return {
-    version: value.version ?? 1,
-    serverName: value.serverName,
-    addresses: Array.isArray(value.addresses) ? value.addresses : [],
-    port: value.port,
-    fingerprint: value.fingerprint,
-    token: value.token ?? null,
-    expiresAt: value.expiresAt ?? null,
-  };
 }
 
 /**
@@ -297,7 +272,8 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
 
     async pairWithQr(payload: PairingPayload | string): Promise<PairedPc> {
       await delay(latencyMs);
-      const parsed = parsePayload(payload);
+      const parsed =
+        typeof payload === 'string' ? parsePairingPayload(payload) : payload;
       pairedPc = {
         name: parsed.serverName,
         addresses: parsed.addresses,

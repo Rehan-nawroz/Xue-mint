@@ -62,6 +62,55 @@ test('unpaired status offers pairing', async ({ page }) => {
   await expect(page.getByRole('dialog')).toBeVisible();
 });
 
+test('simulate scan pairs the sample PC', async ({ page }) => {
+  await page.goto('/?latency=0&scenario=unpaired');
+  await page.getByRole('button', { name: 'Pair', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toHaveScreenshot('pair-dialog.png');
+  await dialog.getByRole('button', { name: 'Simulate scan' }).click();
+  await expect(page.getByTestId('backup-status')).toContainText('waiting to back up');
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByText('STUDIO-PC')).toBeVisible();
+  await expect(page.getByText('192.168.1.24:8427')).toBeVisible();
+});
+
+test('pairing code problems use plain sentences', async ({ page }) => {
+  await page.goto('/?latency=0&scenario=unpaired');
+  await page.getByRole('button', { name: 'Pair', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const code = dialog.getByLabel('Pairing code');
+  const pairButton = dialog.getByRole('button', { name: 'Pair', exact: true });
+  const valid = {
+    version: 1,
+    serverName: 'STUDIO-PC',
+    addresses: ['192.168.1.24'],
+    port: 8427,
+    fingerprint: '4B:1E:9C:2A:77:0D:31:8F:6E:52:A0:CD:19:44:B8:7E:23:91:0F:5A:C7:64:D2:88:3B:EE:15:6D:9A:40:52:FC',
+    token: 'XM7K-4QDP',
+  };
+
+  await code.fill('{"hello":"world"}');
+  await pairButton.click();
+  await expect(dialog.getByRole('alert')).toHaveText('This is not a pairing code.');
+
+  await code.fill(JSON.stringify({ ...valid, version: 2 }));
+  await pairButton.click();
+  await expect(dialog.getByRole('alert')).toContainText('different app version');
+
+  await code.fill(JSON.stringify({ ...valid, fingerprint: 'abc' }));
+  await pairButton.click();
+  await expect(dialog.getByRole('alert')).toContainText('The code is damaged');
+
+  await code.fill(JSON.stringify({ ...valid, expiresAt: '2020-01-01T00:00:00.000Z' }));
+  await pairButton.click();
+  await expect(dialog.getByRole('alert')).toContainText('This code expired');
+
+  await code.fill('http://not-a-code');
+  await pairButton.click();
+  await expect(dialog.getByRole('alert')).toHaveText('This is not a pairing code.');
+});
+
 test('mock pairing and setting changes take effect', async ({ page }) => {
   await page.goto('/?latency=0&scenario=unpaired');
   await page.getByRole('button', { name: 'Pair' }).click();

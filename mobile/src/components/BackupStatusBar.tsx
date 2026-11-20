@@ -16,6 +16,13 @@ interface Presentation {
 }
 
 function present(status: BackupStatus): Presentation {
+  if (status.connection === 'blocked') {
+    return {
+      title: 'This Wi-Fi blocks your PC',
+      detail: 'Use your home Wi-Fi or a network that allows local devices',
+      tone: 'error',
+    };
+  }
   if (status.connection === 'unreachable') {
     return {
       title: 'PC not reachable',
@@ -158,6 +165,14 @@ export function BackupStatusBar({
           onClick={onPair}
         >
           Pair
+        </button>
+      ) : view.tone === 'offline' || view.tone === 'error' ? (
+        <button
+          type="button"
+          className="flex-none rounded-full border border-line bg-surface px-3 py-1.5 text-[11px] font-semibold text-ink"
+          onClick={onRetry}
+        >
+          Retry
         </button>
       ) : null}
     </div>

@@ -70,6 +70,8 @@ export type ConnectionState =
   | 'connected'
   | 'searching'
   | 'unreachable'
+  /** The joined network drops phone-to-PC traffic (guest/office Wi-Fi). */
+  | 'blocked'
   | 'not_paired'
   | 'error';
 

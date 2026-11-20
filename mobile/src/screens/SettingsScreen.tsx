@@ -20,6 +20,7 @@ interface SettingsScreenProps {
   saving: boolean;
   onSettingsChange: (update: EngineSettingsUpdate) => Promise<void>;
   onPair: () => void;
+  onRetryStatus: () => void;
   diagnostics: NativeDiagnostics | null;
 }
 
@@ -85,6 +86,7 @@ function connectionLabel(status: BackupStatus | null): string {
   if (!status) return 'Checking…';
   if (status.connection === 'connected') return 'Connected';
   if (status.connection === 'unreachable') return 'Not reachable';
+  if (status.connection === 'blocked') return 'Wi-Fi blocked';
   if (status.connection === 'not_paired') return 'Not paired';
   return 'Needs attention';
 }
@@ -97,6 +99,7 @@ export function SettingsScreen({
   saving,
   onSettingsChange,
   onPair,
+  onRetryStatus,
   diagnostics,
 }: SettingsScreenProps) {
   const { choice, setChoice } = useTheme();
@@ -183,7 +186,9 @@ export function SettingsScreen({
                 className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                   connected
                     ? 'bg-success-soft text-success'
-                    : 'bg-warning-soft text-ink'
+                    : status?.connection === 'error' || status?.connection === 'blocked'
+                      ? 'bg-danger-soft text-danger'
+                      : 'bg-warning-soft text-ink'
                 }`}
               >
                 {connectionLabel(status)}
@@ -212,12 +217,27 @@ export function SettingsScreen({
               </span>
               <ChevronRightIcon className="h-4 w-4 text-muted" />
             </button>
-            {engine.mode === 'native' ? (
-              <p className="mt-2 text-[10px] leading-relaxed text-muted">
-                Camera pairing is not part of this build yet. Use the native checks below to
-                verify the connection pieces.
+            {paired && !connected && status?.message ? (
+              <p className="mt-2 rounded-xl bg-warning-soft px-3 py-2 text-[10px] leading-relaxed text-ink">
+                {status.message}
               </p>
             ) : null}
+
+            {paired && !connected ? (
+              <button
+                type="button"
+                className="mt-2 rounded-full border border-line px-3 py-1.5 text-[11px] font-semibold text-ink hover:bg-surface-2"
+                onClick={onRetryStatus}
+              >
+                Retry connection
+              </button>
+            ) : null}
+
+            <p className="mt-2 text-[10px] leading-relaxed text-muted">
+              {engine.mode === 'native'
+                ? 'Pair by scanning the code shown on your PC, or enter it manually if the camera is unavailable.'
+                : 'Pairing here uses the sample PC; the installed app scans the code straight from your PC screen.'}
+            </p>
           </div>
         </Section>
 

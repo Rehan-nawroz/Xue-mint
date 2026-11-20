@@ -1,4 +1,6 @@
 import { Capacitor } from '@capacitor/core';
+import { nativeDiscoverPc, nativePairPc, nativePairingState } from './native-bridge';
+import { parsePairingPayload } from './pairing';
 import type {
   BackupEngine,
   BackupStatus,
@@ -17,6 +19,8 @@ import type {
 const NOT_READY =
   'The native backup engine is not wired into the app yet. Use the diagnostics panel to run the native spike checks.';
 
+const CONNECTION_POLL_MS = 20_000;
+
 function nativeNotReady(): Promise<never> {
   return Promise.reject(new Error(NOT_READY));
 }
@@ -28,6 +32,10 @@ class NativeEngine implements BackupEngine {
     chargingOnly: false,
     autoBackup: true,
   };
+  private listeners = new Set<(status: BackupStatus) => void>();
+  private pollTimer: number | null = null;
+  private lastStatus: BackupStatus | null = null;
+  private checking: Promise<BackupStatus> | null = null;
 
   scanPhotos(): Promise<PhonePhoto[]> {
     return nativeNotReady();
@@ -45,30 +53,55 @@ class NativeEngine implements BackupEngine {
     return nativeNotReady();
   }
 
+  /** Reads the stored pairing and checks whether the PC answers right now. */
   async status(): Promise<BackupStatus> {
-    return {
-      phase: 'idle',
-      connection: 'not_paired',
-      pairedPc: null,
-      phonePhotos: 0,
-      backedUp: 0,
-      pending: 0,
-      failed: 0,
-      totalBytes: 0,
-      uploadedBytes: 0,
-      currentPhoto: null,
-      lastBackupAt: null,
-      message: 'Pair once with your PC to start backup',
-      updatedAt: new Date().toISOString(),
-    };
+    if (this.checking) return this.checking;
+
+    this.checking = (async () => {
+      try {
+        const state = await nativePairingState();
+        const status = this.buildStatus(state.connection, state.message, state.pc);
+        this.lastStatus = status;
+        return status;
+      } catch (cause) {
+        const status = this.buildStatus(
+          'error',
+          cause instanceof Error ? cause.message : String(cause),
+          this.lastStatus?.pairedPc ?? null
+        );
+        this.lastStatus = status;
+        return status;
+      } finally {
+        this.checking = null;
+      }
+    })();
+
+    return this.checking;
   }
 
-  pairWithQr(_payload: PairingPayload | string): Promise<PairedPc> {
-    return nativeNotReady();
+  /**
+   * Parses and validates the code, then pairs over pinned TLS. The one-time
+   * token stays in memory only; the engine stores the returned credential.
+   */
+  async pairWithQr(payload: PairingPayload | string): Promise<PairedPc> {
+    const parsed = typeof payload === 'string' ? parsePairingPayload(payload) : payload;
+    if (!parsed.token) throw new Error('This is not a pairing code.');
+
+    const pc = await nativePairPc({
+      addresses: parsed.addresses,
+      port: parsed.port,
+      fingerprint: parsed.fingerprint,
+      token: parsed.token,
+      serverName: parsed.serverName,
+    });
+
+    this.lastStatus = this.buildStatus('connected', `Connected to ${pc.name}`, pc);
+    this.emit(this.lastStatus);
+    return pc;
   }
 
-  discoverPc(_timeoutMs?: number): Promise<DiscoveredPc[]> {
-    return nativeNotReady();
+  discoverPc(timeoutMs = 6000): Promise<DiscoveredPc[]> {
+    return nativeDiscoverPc(timeoutMs);
   }
 
   async getSettings(): Promise<EngineSettings> {
@@ -84,8 +117,54 @@ class NativeEngine implements BackupEngine {
     return nativeNotReady();
   }
 
-  subscribe(_listener: (status: BackupStatus) => void): () => void {
-    return () => {};
+  /** Publishes the initial state, then re-checks the PC while the UI is open. */
+  subscribe(listener: (status: BackupStatus) => void): () => void {
+    this.listeners.add(listener);
+    this.startPolling();
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0) this.stopPolling();
+    };
+  }
+
+  private buildStatus(
+    connection: BackupStatus['connection'],
+    message: string,
+    pc: PairedPc | null
+  ): BackupStatus {
+    return {
+      phase: 'idle',
+      connection,
+      pairedPc: pc,
+      phonePhotos: 0,
+      backedUp: 0,
+      pending: 0,
+      failed: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+      currentPhoto: null,
+      lastBackupAt: null,
+      message,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private emit(status: BackupStatus) {
+    for (const listener of this.listeners) listener(status);
+  }
+
+  private startPolling() {
+    if (this.pollTimer !== null) return;
+    this.pollTimer = window.setInterval(() => {
+      if (document.hidden) return;
+      void this.status().then((status) => this.emit(status));
+    }, CONNECTION_POLL_MS);
+  }
+
+  private stopPolling() {
+    if (this.pollTimer === null) return;
+    window.clearInterval(this.pollTimer);
+    this.pollTimer = null;
   }
 }
 
