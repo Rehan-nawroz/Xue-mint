@@ -59,6 +59,19 @@ class BackupEnginePlugin : Plugin() {
 
     private val executor = Executors.newSingleThreadExecutor()
 
+    /** Serves PC and phone media to the WebView over 127.0.0.1. */
+    private var mediaServer: LocalMediaServer? = null
+
+    override fun load() {
+        try {
+            mediaServer = LocalMediaServer(context) { PairingStore.load(context) }.also {
+                it.start()
+            }
+        } catch (_: Exception) {
+            // Timeline and viewer surfaces report the missing server.
+        }
+    }
+
     /** Backup passes run one at a time, away from the status/pairing lane. */
     private val backupExecutor = ThreadPoolExecutor(
         1, 1, 30, TimeUnit.SECONDS,
@@ -372,6 +385,126 @@ class BackupEnginePlugin : Plugin() {
             .put("wifiOnly", settings.wifiOnly)
             .put("chargingOnly", settings.chargingOnly)
             .put("autoBackup", settings.autoBackup)
+
+    // ------------------------------------------------ engine: PC library
+
+    @PluginMethod
+    fun mediaServer(call: PluginCall) {
+        val server = mediaServer
+        if (server == null) {
+            call.reject("The local media server is not running.")
+            return
+        }
+        call.resolve(JSObject().put("url", server.baseUrl))
+    }
+
+    /**
+     * Reads a page of the PC library timeline over pinned TLS, newest first.
+     * Media URLs are built by the caller against the local media server.
+     */
+    @PluginMethod
+    fun timeline(call: PluginCall) {
+        val cursor = call.getString("cursor")?.takeIf { it.isNotBlank() }
+        val limit = (call.getInt("limit", 120) ?: 120).coerceIn(1, 500)
+        executor.execute {
+            val pairing = PairingStore.load(context)
+            if (pairing == null) {
+                call.reject("Pair once with your PC to start backup.")
+                return@execute
+            }
+            var sawAuthProblem = false
+            for (rawAddress in pairing.addresses) {
+                val address = rawAddress.trim()
+                try {
+                    val client = PinnedNet.client(pairing.fingerprint, 5, 15, 20)
+                    var url = "https://$address:${pairing.port}/assets?limit=$limit"
+                    if (cursor != null) url += "&cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}"
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Device ${pairing.credential}")
+                        .get()
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        when {
+                            response.code == 200 -> {
+                                val body = response.body?.string().orEmpty()
+                                val json = JSONObject(body)
+                                val result = JSObject()
+                                result.put("items", json.optJSONArray("items") ?: JSArray())
+                                val next = json.optString("nextCursor")
+                                result.put("nextCursor", if (next.isEmpty()) JSONObject.NULL else next)
+                                result.put("mediaBase", mediaServer?.baseUrl ?: JSONObject.NULL)
+                                call.resolve(result)
+                                return@execute
+                            }
+                            response.code == 401 || response.code == 403 -> sawAuthProblem = true
+                            else -> {
+                                call.reject("The PC answered with HTTP ${response.code}.")
+                                return@execute
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Try the next advertised address.
+                }
+            }
+            if (sawAuthProblem) {
+                call.reject(UNPAIRED_MESSAGE)
+            } else {
+                call.reject("PC not reachable — will back up when you're home")
+            }
+        }
+    }
+
+    /**
+     * Removes an asset from the PC's library index. What happens to the file
+     * itself follows the PC's own delete-behaviour setting; the phone copy is
+     * never touched.
+     */
+    @PluginMethod
+    fun deleteAsset(call: PluginCall) {
+        val assetId = call.getString("assetId")?.trim().orEmpty()
+        if (assetId.isEmpty()) {
+            call.reject("No asset was given.")
+            return
+        }
+        executor.execute {
+            val pairing = PairingStore.load(context)
+            if (pairing == null) {
+                call.reject(UNPAIRED_MESSAGE)
+                return@execute
+            }
+            var sawAuthProblem = false
+            for (rawAddress in pairing.addresses) {
+                val address = rawAddress.trim()
+                try {
+                    val client = PinnedNet.client(pairing.fingerprint, 5, 10, 15)
+                    val request = Request.Builder()
+                        .url("https://$address:${pairing.port}/assets/$assetId")
+                        .header("Authorization", "Device ${pairing.credential}")
+                        .delete()
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        when {
+                            response.code == 204 || response.code == 404 -> {
+                                call.resolve()
+                                return@execute
+                            }
+                            response.code == 401 || response.code == 403 -> sawAuthProblem = true
+                            else -> {
+                                call.reject("The PC answered with HTTP ${response.code}.")
+                                return@execute
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Try the next advertised address.
+                }
+            }
+            if (sawAuthProblem) call.reject(UNPAIRED_MESSAGE)
+            else call.reject("PC not reachable — try again when you're home")
+        }
+    }
 
     // ----------------------------------------------------------------- mDNS
 
