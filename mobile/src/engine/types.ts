@@ -84,6 +84,27 @@ export type BackupPhase =
   | 'paused'
   | 'error';
 
+/** Per-photo backup state from the engine's own store. */
+export type PhotoBackupState =
+  /** Found in the library, not hashed yet. */
+  | 'new'
+  /** Digest remembered, PC presence not checked yet. */
+  | 'hashed'
+  /** Queued: the PC said it is missing this content. */
+  | 'missing'
+  | 'uploading'
+  /** The PC has this content (uploaded, or it was already there). */
+  | 'backedUp'
+  /** The last attempt errored; retried on the next pass. */
+  | 'failed';
+
+export interface PhonePhotoState {
+  photo: PhonePhoto;
+  state: PhotoBackupState;
+  hash: string | null;
+  error: string | null;
+}
+
 /** Everything the UI needs to display, produced only by the engine. */
 export interface BackupStatus {
   phase: BackupPhase;
@@ -158,6 +179,18 @@ export interface BackupEngine {
 
   /** Reads a page of the PC library timeline, newest first. */
   fetchTimeline(cursor?: string | null, limit?: number): Promise<TimelinePage>;
+
+  /** Runs one backup pass now: scan, hash, check, upload. */
+  startBackup(): Promise<BackupStatus>;
+
+  /** Per-photo backup states from the engine's own store, newest first. */
+  photoStates(limit?: number): Promise<PhonePhotoState[]>;
+
+  /**
+   * Queues a background backup under the current backup rules. Only the
+   * native engine implements it; the mock leaves it unset.
+   */
+  scheduleBackgroundBackup?(): Promise<{ enqueued: boolean; pending: number; workState?: string }>;
 
   /** Subscribes to status changes caused by engine work. */
   subscribe(listener: (status: BackupStatus) => void): () => void;

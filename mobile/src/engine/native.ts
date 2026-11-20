@@ -1,5 +1,17 @@
 import { Capacitor } from '@capacitor/core';
-import { nativeDiscoverPc, nativePairPc, nativePairingState } from './native-bridge';
+import {
+  nativeBackupState,
+  nativeBackupWorkStatus,
+  nativeDiscoverPc,
+  nativeEnginePhotos,
+  nativeEngineSettings,
+  nativePairPc,
+  nativePairingState,
+  nativeSaveEngineSettings,
+  nativeScheduleBackupWork,
+  nativeStartBackup,
+} from './native-bridge';
+import type { NativeEnginePhoto } from './native-bridge';
 import { parsePairingPayload } from './pairing';
 import type {
   BackupEngine,
@@ -11,77 +23,86 @@ import type {
   PairingPayload,
   PairedPc,
   PhonePhoto,
+  PhonePhotoState,
   TimelinePage,
   UploadOptions,
   UploadResult,
 } from './types';
 
+const NOT_BACKED =
+  'The native engine runs hashing, checking and uploading inside a backup pass. Use Start backup from the Settings screen; direct calls are not needed by the app.';
+
 const NOT_READY =
-  'The native backup engine is not wired into the app yet. Use the diagnostics panel to run the native spike checks.';
+  'The native engine cannot read the PC timeline yet. The PC library browsing arrives with the viewer work.';
 
-const CONNECTION_POLL_MS = 20_000;
+/** Full connection check (pinned TLS round trip) while idle. */
+const FULL_POLL_MS = 20_000;
 
-function nativeNotReady(): Promise<never> {
-  return Promise.reject(new Error(NOT_READY));
-}
+/** Cheap engine-only poll while a backup pass is running. */
+const ACTIVE_POLL_MS = 2_000;
 
 class NativeEngine implements BackupEngine {
   readonly mode = 'native' as const;
-  private settings: EngineSettings = {
-    wifiOnly: true,
-    chargingOnly: false,
-    autoBackup: true,
-  };
   private listeners = new Set<(status: BackupStatus) => void>();
   private pollTimer: number | null = null;
   private lastStatus: BackupStatus | null = null;
-  private checking: Promise<BackupStatus> | null = null;
+  private lastFullCheck = 0;
+  private fullChecking: Promise<BackupStatus> | null = null;
 
-  scanPhotos(): Promise<PhonePhoto[]> {
-    return nativeNotReady();
+  async scanPhotos(): Promise<PhonePhoto[]> {
+    const result = await nativeEnginePhotos(1000);
+    return result.photos.map((photo) => toPhonePhoto(photo));
   }
 
   hashPhotos(_photos: readonly PhonePhoto[]): Promise<HashedPhoto[]> {
-    return nativeNotReady();
+    return Promise.reject(new Error(NOT_BACKED));
   }
 
   checkMissing(_hashes: readonly string[]): Promise<string[]> {
-    return nativeNotReady();
+    return Promise.reject(new Error(NOT_BACKED));
   }
 
   upload(_photo: HashedPhoto, _options?: UploadOptions): Promise<UploadResult> {
-    return nativeNotReady();
+    return Promise.reject(new Error(NOT_BACKED));
   }
 
-  /** Reads the stored pairing and checks whether the PC answers right now. */
+  /** Full status: pairing check over pinned TLS plus the engine counters. */
   async status(): Promise<BackupStatus> {
-    if (this.checking) return this.checking;
+    if (this.fullChecking) return this.fullChecking;
 
-    this.checking = (async () => {
+    this.fullChecking = (async () => {
       try {
         const state = await nativePairingState();
-        const status = this.buildStatus(state.connection, state.message, state.pc);
+        const status = buildStatus(
+          state.connection,
+          state.message,
+          state.pc,
+          state.backup ?? null
+        );
         this.lastStatus = status;
+        this.lastFullCheck = Date.now();
         return status;
       } catch (cause) {
-        const status = this.buildStatus(
+        const status = buildStatus(
           'error',
           cause instanceof Error ? cause.message : String(cause),
-          this.lastStatus?.pairedPc ?? null
+          this.lastStatus?.pairedPc ?? null,
+          this.lastBackupOnly()
         );
         this.lastStatus = status;
         return status;
       } finally {
-        this.checking = null;
+        this.fullChecking = null;
       }
     })();
 
-    return this.checking;
+    return this.fullChecking;
   }
 
   /**
    * Parses and validates the code, then pairs over pinned TLS. The one-time
-   * token stays in memory only; the engine stores the returned credential.
+   * token stays in memory only; the engine stores the returned credential and
+   * starts its first backup pass on its own.
    */
   async pairWithQr(payload: PairingPayload | string): Promise<PairedPc> {
     const parsed = typeof payload === 'string' ? parsePairingPayload(payload) : payload;
@@ -95,8 +116,9 @@ class NativeEngine implements BackupEngine {
       serverName: parsed.serverName,
     });
 
-    this.lastStatus = this.buildStatus('connected', `Connected to ${pc.name}`, pc);
-    this.emit(this.lastStatus);
+    this.lastStatus = null;
+    const status = await this.status();
+    this.emit(status);
     return pc;
   }
 
@@ -105,19 +127,70 @@ class NativeEngine implements BackupEngine {
   }
 
   async getSettings(): Promise<EngineSettings> {
-    return { ...this.settings };
+    return nativeEngineSettings();
   }
 
   async setSettings(update: EngineSettingsUpdate): Promise<EngineSettings> {
-    this.settings = { ...this.settings, ...update };
-    return { ...this.settings };
+    const current = await nativeEngineSettings();
+    const next = await nativeSaveEngineSettings({ ...current, ...update });
+    return next;
   }
 
   fetchTimeline(_cursor?: string | null, _limit?: number): Promise<TimelinePage> {
-    return nativeNotReady();
+    return Promise.reject(new Error(NOT_READY));
   }
 
-  /** Publishes the initial state, then re-checks the PC while the UI is open. */
+  /** Kicks a backup pass and reports where the engine stands afterwards. */
+  async startBackup(): Promise<BackupStatus> {
+    try {
+      await nativeStartBackup();
+    } catch (cause) {
+      // A rejected call means the engine refused to start (Wi-Fi only rule,
+      // no pairing). The message is written for the user as-is.
+      const status = buildStatus(
+        this.lastStatus?.connection ?? 'error',
+        cause instanceof Error ? cause.message : String(cause),
+        this.lastStatus?.pairedPc ?? null,
+        this.lastBackupOnly()
+      );
+      this.lastStatus = status;
+      this.emit(status);
+      return status;
+    }
+    // Give the pass a moment to publish its first phase.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const status = await this.status();
+    this.emit(status);
+    return status;
+  }
+
+  async photoStates(limit = 50): Promise<PhonePhotoState[]> {
+    const result = await nativeEnginePhotos(limit);
+    return result.photos.map((photo) => ({
+      photo: toPhonePhoto(photo),
+      state: photo.state,
+      hash: photo.hash,
+      error: photo.lastError,
+    }));
+  }
+
+  /** Queues the WorkManager backup under the current backup rules. */
+  async scheduleBackgroundBackup(): Promise<{
+    enqueued: boolean;
+    pending: number;
+    workState?: string;
+  }> {
+    const outcome = await nativeScheduleBackupWork();
+    let workState: string | undefined;
+    try {
+      workState = (await nativeBackupWorkStatus()).state;
+    } catch {
+      // The queue answer is already useful on its own.
+    }
+    return { ...outcome, workState };
+  }
+
+  /** Publishes state updates while the UI is open. */
   subscribe(listener: (status: BackupStatus) => void): () => void {
     this.listeners.add(listener);
     this.startPolling();
@@ -127,25 +200,19 @@ class NativeEngine implements BackupEngine {
     };
   }
 
-  private buildStatus(
-    connection: BackupStatus['connection'],
-    message: string,
-    pc: PairedPc | null
-  ): BackupStatus {
+  private lastBackupOnly() {
+    if (!this.lastStatus) return null;
     return {
-      phase: 'idle',
-      connection,
-      pairedPc: pc,
-      phonePhotos: 0,
-      backedUp: 0,
-      pending: 0,
-      failed: 0,
-      totalBytes: 0,
-      uploadedBytes: 0,
-      currentPhoto: null,
-      lastBackupAt: null,
-      message,
-      updatedAt: new Date().toISOString(),
+      phase: this.lastStatus.phase,
+      phonePhotos: this.lastStatus.phonePhotos,
+      backedUp: this.lastStatus.backedUp,
+      pending: this.lastStatus.pending,
+      failed: this.lastStatus.failed,
+      uploadedBytes: this.lastStatus.uploadedBytes,
+      totalBytes: this.lastStatus.totalBytes,
+      currentPhoto: this.lastStatus.currentPhoto,
+      lastBackupAt: this.lastStatus.lastBackupAt,
+      message: this.lastStatus.message,
     };
   }
 
@@ -153,12 +220,16 @@ class NativeEngine implements BackupEngine {
     for (const listener of this.listeners) listener(status);
   }
 
+  /**
+   * Polls the engine every 2 seconds while a pass runs so progress moves, and
+   * does the full pinned-TLS connection check every 20 seconds when idle.
+   */
   private startPolling() {
     if (this.pollTimer !== null) return;
     this.pollTimer = window.setInterval(() => {
       if (document.hidden) return;
-      void this.status().then((status) => this.emit(status));
-    }, CONNECTION_POLL_MS);
+      void this.tick();
+    }, ACTIVE_POLL_MS);
   }
 
   private stopPolling() {
@@ -166,6 +237,108 @@ class NativeEngine implements BackupEngine {
     window.clearInterval(this.pollTimer);
     this.pollTimer = null;
   }
+
+  private async tick() {
+    const idle = this.lastStatus === null || this.lastStatus.phase === 'idle';
+    const dueForFullCheck = Date.now() - this.lastFullCheck >= FULL_POLL_MS;
+
+    if (idle && dueForFullCheck) {
+      const status = await this.status();
+      this.emit(status);
+      return;
+    }
+
+    // While a pass runs, publish engine-only progress without touching TLS.
+    try {
+      const backup = await nativeBackupState();
+      if (backup.phase === 'idle' && idle) return;
+      const status = buildStatus(
+        this.lastStatus?.connection ?? 'searching',
+        backup.message,
+        this.lastStatus?.pairedPc ?? null,
+        backup
+      );
+      this.lastStatus = status;
+      this.emit(status);
+    } catch {
+      // The next full check reports the reason.
+    }
+  }
+}
+
+function toPhonePhoto(photo: NativeEnginePhoto): PhonePhoto {
+  return {
+    id: photo.id,
+    uri: photo.uri,
+    filename: photo.filename,
+    mimeType: photo.mimeType,
+    size: photo.size,
+    takenAt: photo.takenAt,
+    width: photo.width,
+    height: photo.height,
+  };
+}
+
+/**
+ * Merges the connection answer and the engine counters into the one status
+ * object the UI renders, with the human-readable line the status bar shows.
+ */
+function buildStatus(
+  connection: BackupStatus['connection'],
+  connectionMessage: string,
+  pc: PairedPc | null,
+  backup: {
+    phase: BackupStatus['phase'];
+    phonePhotos: number;
+    backedUp: number;
+    pending: number;
+    failed: number;
+    uploadedBytes: number;
+    totalBytes: number;
+    currentPhoto: string | null;
+    lastBackupAt: string | null;
+    message: string;
+  } | null
+): BackupStatus {
+  const phase = backup?.phase ?? 'idle';
+  const pending = backup?.pending ?? 0;
+  const failed = backup?.failed ?? 0;
+  const currentPhoto = backup?.currentPhoto ?? null;
+
+  let message = connectionMessage;
+  if (connection === 'not_paired') {
+    message = 'Pair once with your PC to start backup';
+  } else if (connection === 'unreachable') {
+    message = "PC not reachable — will back up when you're home";
+  } else if (connection === 'error' && !backup?.message) {
+    message = connectionMessage;
+  } else if (backup) {
+    message = backup.message;
+  } else if (connection === 'blocked') {
+    message = connectionMessage;
+  }
+
+  if (connection === 'connected' && phase === 'idle' && pending > 0 && !currentPhoto) {
+    message = `${pending} ${pending === 1 ? 'photo' : 'photos'} waiting to back up`;
+  } else if (connection === 'connected' && phase === 'idle' && pending === 0 && failed === 0) {
+    message = 'All photos are on your PC';
+  }
+
+  return {
+    phase,
+    connection,
+    pairedPc: pc,
+    phonePhotos: backup?.phonePhotos ?? 0,
+    backedUp: backup?.backedUp ?? 0,
+    pending,
+    failed,
+    totalBytes: backup?.totalBytes ?? 0,
+    uploadedBytes: backup?.uploadedBytes ?? 0,
+    currentPhoto,
+    lastBackupAt: backup?.lastBackupAt ?? null,
+    message,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export function createNativeEngine(): BackupEngine {

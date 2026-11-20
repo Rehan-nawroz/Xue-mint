@@ -9,6 +9,8 @@ import type {
   PairingPayload,
   PairedPc,
   PhonePhoto,
+  PhonePhotoState,
+  PhotoBackupState,
   TimelinePage,
   UploadOptions,
   UploadResult,
@@ -146,6 +148,7 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
   let phase: BackupStatus['phase'] = 'idle';
   let currentPhoto: string | null = null;
   let uploadedBytes = 0;
+  let failedIds = new Set<string>();
 
   const connection = (): BackupStatus['connection'] => {
     if (!pairedPc) return 'not_paired';
@@ -178,7 +181,10 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
       backedUp,
       pending,
       failed: 0,
-      totalBytes: phonePhotos.reduce((total, photo) => total + photo.size, 0),
+      totalBytes:
+        phase === 'uploading' && currentPhoto
+          ? (phonePhotos.find((item) => item.filename === currentPhoto)?.size ?? 0)
+          : phonePhotos.reduce((total, photo) => total + photo.size, 0),
       uploadedBytes,
       currentPhoto,
       lastBackupAt:
@@ -198,7 +204,7 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
     return pairedPc;
   };
 
-  return {
+  const engine: BackupEngine = {
     mode: 'mock',
 
     async scanPhotos(): Promise<PhonePhoto[]> {
@@ -318,7 +324,74 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+
+    async photoStates(limit = 50): Promise<PhonePhotoState[]> {
+      await delay(Math.min(latencyMs, 40));
+      return phonePhotos.slice(0, limit).map((photo) => ({
+        photo,
+        state: stateFor(photo),
+        hash: hashes.get(photo.id) ?? null,
+        error: null,
+      }));
+    },
+
+    /**
+     * Simulates one pass: scan, hash, check, then upload everything the
+     * sample PC is missing, with the same phase transitions as the engine.
+     */
+    async startBackup(): Promise<BackupStatus> {
+      if (!pairedPc) throw new Error('Pair with your PC first.');
+      if (connection() !== 'connected') {
+        phase = 'paused';
+        currentPhoto = null;
+        emit();
+        return buildStatus();
+      }
+
+      for (const step of ['scanning', 'hashing', 'checking'] as const) {
+        phase = step;
+        emit();
+        await delay(latencyMs);
+      }
+
+      phase = 'uploading';
+      emit();
+      failedIds = new Set();
+      for (const photo of phonePhotos) {
+        if (stored.has(hashes.get(photo.id) ?? '')) continue;
+        currentPhoto = photo.filename;
+        uploadedBytes = 0;
+        const total = photo.size;
+        const steps = 3;
+        for (let step = 1; step <= steps; step += 1) {
+          await delay(Math.max(20, latencyMs));
+          uploadedBytes = Math.round((total * step) / steps);
+          emit();
+        }
+        if (options.failUploads && failedIds.size < 2) {
+          failedIds.add(photo.id);
+        } else {
+          stored.add(hashes.get(photo.id) ?? '');
+        }
+      }
+
+      phase = failedIds.size > 0 ? 'paused' : 'idle';
+      currentPhoto = null;
+      uploadedBytes = 0;
+      emit();
+      return buildStatus();
+    },
   };
+
+  function stateFor(photo: PhonePhoto): PhotoBackupState {
+    if (failedIds.has(photo.id)) return 'failed';
+    if (currentPhoto === photo.filename && phase === 'uploading') return 'uploading';
+    if (stored.has(hashes.get(photo.id) ?? '')) return 'backedUp';
+    if (phase === 'hashing' || phase === 'checking') return 'new';
+    return 'missing';
+  }
+
+  return engine;
 }
 
 export const DEMO_PAIRING_PAYLOAD: PairingPayload = {

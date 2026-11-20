@@ -1,5 +1,12 @@
 import { registerPlugin } from '@capacitor/core';
-import type { ConnectionState, DiscoveredPc, PairedPc } from './types';
+import type {
+  BackupPhase,
+  ConnectionState,
+  DiscoveredPc,
+  EngineSettings,
+  PairedPc,
+  PhotoBackupState,
+} from './types';
 
 /** Reachability of the stored pairing, as reported by the Kotlin engine. */
 export interface NativePairingState {
@@ -7,6 +14,38 @@ export interface NativePairingState {
   pc: PairedPc | null;
   connection: ConnectionState;
   message: string;
+  /** Engine counters, present while paired. */
+  backup?: NativeBackupState;
+}
+
+/** Backup engine counters written by the Kotlin backup pass. */
+export interface NativeBackupState {
+  phase: BackupPhase;
+  phonePhotos: number;
+  backedUp: number;
+  pending: number;
+  failed: number;
+  uploadedBytes: number;
+  totalBytes: number;
+  currentPhoto: string | null;
+  lastBackupAt: string | null;
+  message: string;
+}
+
+/** One library photo plus its remembered backup state. */
+export interface NativeEnginePhoto {
+  id: string;
+  uri: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  takenAt: string;
+  width: number | null;
+  height: number | null;
+  state: PhotoBackupState;
+  hash: string | null;
+  uploadOffset: number;
+  lastError: string | null;
 }
 
 export interface NativePairOptions {
@@ -22,6 +61,23 @@ interface NativeEnginePlugin {
   pairingState(): Promise<NativePairingState>;
   forgetPc(): Promise<void>;
   discoverPc(options: { timeoutMs: number }): Promise<{ services: DiscoveredPc[] }>;
+  startBackup(): Promise<{ started: boolean; message: string }>;
+  backupState(): Promise<NativeBackupState>;
+  scheduleBackupWork(): Promise<{ enqueued: boolean; pending: number }>;
+  backupWorkStatus(): Promise<{ state: string; message: string | null }>;
+  enginePhotos(options: { limit: number }): Promise<{
+    photos: NativeEnginePhoto[];
+    counts: {
+      phonePhotos: number;
+      backedUp: number;
+      pending: number;
+      failed: number;
+    };
+  }>;
+  engineSettings(): Promise<{ settings: EngineSettings }>;
+  saveEngineSettings(options: {
+    settings: EngineSettings;
+  }): Promise<{ settings: EngineSettings }>;
 }
 
 const native = registerPlugin<NativeEnginePlugin>('BackupEngine');
@@ -44,4 +100,51 @@ export function nativeForgetPc(): Promise<void> {
 
 export function nativeDiscoverPc(timeoutMs: number): Promise<DiscoveredPc[]> {
   return native.discoverPc({ timeoutMs }).then((result) => result.services);
+}
+
+export function nativeStartBackup(): Promise<{ started: boolean; message: string }> {
+  return native.startBackup();
+}
+
+/** Cheap engine-only read used while a backup pass is running. */
+export function nativeBackupState(): Promise<NativeBackupState> {
+  return native.backupState();
+}
+
+export function nativeEnginePhotos(limit: number): Promise<{
+  photos: NativeEnginePhoto[];
+  counts: {
+    phonePhotos: number;
+    backedUp: number;
+    pending: number;
+    failed: number;
+  };
+}> {
+  return native.enginePhotos({ limit });
+}
+
+export function nativeEngineSettings(): Promise<EngineSettings> {
+  return native.engineSettings().then((result) => result.settings);
+}
+
+export function nativeSaveEngineSettings(
+  settings: EngineSettings
+): Promise<EngineSettings> {
+  return native
+    .saveEngineSettings({ settings })
+    .then((result) => result.settings);
+}
+
+export function nativeScheduleBackupWork(): Promise<{
+  enqueued: boolean;
+  pending: number;
+}> {
+  return native.scheduleBackupWork();
+}
+
+export function nativeBackupWorkStatus(): Promise<{
+  state: string;
+  message: string | null;
+}> {
+  return native.backupWorkStatus();
 }
