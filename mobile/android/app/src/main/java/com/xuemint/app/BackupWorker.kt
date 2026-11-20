@@ -2,13 +2,17 @@ package com.xuemint.app
 
 import android.content.Context
 import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 /**
  * Runs one backup pass outside the app's UI process. The constraints come
@@ -39,6 +43,11 @@ class BackupWorker(context: Context, parameters: WorkerParameters) :
 
     companion object {
         const val UNIQUE_WORK = "xue-mint-backup"
+        private const val PERIODIC_WORK = "xue-mint-backup-periodic"
+
+        /** How often the safety-net pass runs with the app closed. */
+        private const val PERIODIC_HOURS = 3L
+        private const val FLEX_HOURS = 1L
 
         fun constraintsFor(settings: EngineSettingsData): Constraints {
             val builder = Constraints.Builder()
@@ -50,6 +59,7 @@ class BackupWorker(context: Context, parameters: WorkerParameters) :
         }
 
         /** Re-queues background backup under the current rules, if there is work. */
+        @JvmStatic
         fun schedule(context: Context, store: EngineStore, replace: Boolean): Boolean {
             val settings = store.settings()
             if (!settings.autoBackup) return false
@@ -66,6 +76,40 @@ class BackupWorker(context: Context, parameters: WorkerParameters) :
                     .build()
             )
             return true
+        }
+
+        /**
+         * Keeps the safety-net periodic pass in step with the backup rules.
+         * Called when the app opens and whenever the rules change; WorkManager
+         * re-runs periodic work after a reboot on its own.
+         */
+        @JvmStatic
+        fun schedulePeriodic(context: Context) {
+            thread {
+                try {
+                    val store = EngineStore(context)
+                    val settings = store.settings()
+                    val manager = WorkManager.getInstance(context)
+                    if (!settings.autoBackup) {
+                        manager.cancelUniqueWork(PERIODIC_WORK)
+                        manager.cancelUniqueWork(UNIQUE_WORK)
+                        return@thread
+                    }
+                    val request = PeriodicWorkRequestBuilder<BackupWorker>(
+                        PERIODIC_HOURS, TimeUnit.HOURS,
+                        FLEX_HOURS, TimeUnit.HOURS
+                    )
+                        .setConstraints(constraintsFor(settings))
+                        .build()
+                    manager.enqueueUniquePeriodicWork(
+                        PERIODIC_WORK,
+                        ExistingPeriodicWorkPolicy.UPDATE,
+                        request
+                    )
+                } catch (error: Exception) {
+                    println("BackupWorker: periodic scheduling failed: ${error.message}")
+                }
+            }
         }
     }
 }

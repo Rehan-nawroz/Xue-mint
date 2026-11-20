@@ -71,6 +71,7 @@ class BackupRunner(
 
         store.setKv("last_run_at", System.currentTimeMillis().toString())
         println("BackupRunner: pass starting")
+        BackupNotifier.progress(context, "Looking through your photo library…")
 
         val link = PcLink(context, pairing)
         var stored = pairing
@@ -139,6 +140,7 @@ class BackupRunner(
                 outcome.authProblem -> {
                     println("BackupRunner: auth rejected")
                     setPhase("error", UNPAIRED_MESSAGE)
+                    BackupNotifier.summary(context, "Pairing is broken — pair again in Settings")
                     return BackupOutcome.AUTH_ERROR
                 }
                 outcome.connection != "connected" -> {
@@ -149,6 +151,7 @@ class BackupRunner(
                         if (advertisedButFiltered) BLOCKED_NETWORK_MESSAGE
                         else "PC not reachable — will back up when you're home"
                     )
+                    BackupNotifier.summary(context, "PC not reachable — backup waits until you're home")
                     return BackupOutcome.PAUSED_UNREACHABLE
                 }
             }
@@ -163,6 +166,7 @@ class BackupRunner(
                     checkMissing(stored, hashes)
                 } catch (error: IOException) {
                     setPhase("paused", "PC not reachable — will back up when you're home")
+                    BackupNotifier.summary(context, "PC not reachable — backup waits until you're home")
                     return BackupOutcome.PAUSED_UNREACHABLE
                 }
                 store.applyCheckResults(hashes.subtract(missingFromPc).toSet())
@@ -191,6 +195,7 @@ class BackupRunner(
                     uploadPhoto(stored, photo)
                     store.setPresent(photo.mediaId)
                     setCurrent(null, 0, 0)
+                    BackupNotifier.progress(context, "${remaining - 1} photos still going…")
                 } catch (error: OffsetMismatch) {
                     // Adopt the server's offset and keep going from there.
                     store.setUploadProgress(photo.mediaId, error.serverOffset)
@@ -207,6 +212,7 @@ class BackupRunner(
                         "paused",
                         "PC not reachable — will back up when you're home"
                     )
+                    BackupNotifier.summary(context, "PC not reachable — backup waits until you're home")
                     return BackupOutcome.PAUSED_UNREACHABLE
                 } catch (error: Exception) {
                     store.setFailed(
@@ -220,19 +226,25 @@ class BackupRunner(
             // ---- wrap up ------------------------------------------------------
             val counts = store.counts()
             return if (counts.failed > 0) {
-                setPhase(
-                    "paused",
+                val message =
                     "${counts.failed} ${if (counts.failed == 1) "photo" else "photos"} " +
                         "couldn't upload. They retry on the next backup."
-                )
+                setPhase("paused", message)
+                BackupNotifier.summary(context, message)
                 BackupOutcome.COMPLETED
             } else {
                 store.setKv(KV_LAST_BACKUP, isoNow())
                 setPhase("idle", "All photos are on your PC")
+                BackupNotifier.cancelProgress(context)
+                BackupNotifier.summary(context, "All photos are on your PC")
                 BackupOutcome.COMPLETED
             }
         } catch (error: Exception) {
             setPhase("error", error.message ?: "The backup run into a problem.")
+            BackupNotifier.summary(
+                context,
+                error.message ?: "The backup ran into a problem."
+            )
             return BackupOutcome.PAUSED_UNREACHABLE
         }
     }

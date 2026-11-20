@@ -304,10 +304,87 @@ class BackupEnginePlugin : Plugin() {
                 )
                 store.saveSettings(next)
                 BackupWorker.schedule(context, store, replace = true)
+                BackupWorker.schedulePeriodic(context)
                 call.resolve(JSObject().put("settings", settingsJson(next)))
             } catch (error: Exception) {
                 call.reject("Could not save the settings: ${error.message}")
             }
+        }
+    }
+
+    // --------------------------------------- battery and notification health
+
+    /**
+     * Battery-optimization state and the notification permission, so the
+     * app can tell the user why background backup might be paused on
+     * aggressive OEMs (Samsung, Xiaomi, Oppo, Huawei…).
+     */
+    @PluginMethod
+    fun deviceStatus(call: PluginCall) {
+        val power = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val result = JSObject()
+        result.put("batteryOptimized", !power.isIgnoringBatteryOptimizations(context.packageName))
+        result.put("manufacturer", Build.MANUFACTURER.lowercase())
+        result.put("model", Build.MODEL)
+        result.put(
+            "notificationsAllowed",
+            BackupNotifier.allowed(context)
+        )
+        call.resolve(result)
+    }
+
+    /** Asks Android to exempt the app from battery optimization. */
+    @PluginMethod
+    fun requestBatteryExemption(call: PluginCall) {
+        try {
+            val power = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (power.isIgnoringBatteryOptimizations(context.packageName)) {
+                call.resolve(JSObject().put("granted", true))
+                return
+            }
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.net.Uri.parse("package:${context.packageName}")
+            )
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            call.resolve(JSObject().put("granted", false))
+        } catch (error: Exception) {
+            call.reject("Could not open the battery prompt: ${error.message}")
+        }
+    }
+
+    /** Opens the system battery-optimization list for manual control. */
+    @PluginMethod
+    fun openBatterySettings(call: PluginCall) {
+        try {
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+            )
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            call.resolve()
+        } catch (error: Exception) {
+            call.reject("Could not open battery settings: ${error.message}")
+        }
+    }
+
+    /** Runtime ask for POST_NOTIFICATIONS (Android 13+). */
+    @PluginMethod
+    fun requestNotificationPermission(call: PluginCall) {
+        if (BackupNotifier.allowed(context)) {
+            call.resolve(JSObject().put("granted", true))
+            return
+        }
+        try {
+            androidx.core.app.ActivityCompat.requestPermissions(
+                activity!!,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                9101
+            )
+            call.resolve(JSObject().put("granted", false))
+        } catch (error: Exception) {
+            call.reject("Could not request notifications: ${error.message}")
         }
     }
 
@@ -378,6 +455,23 @@ class BackupEnginePlugin : Plugin() {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
         }
+    }
+
+    private fun isCharging(): Boolean {
+        val manager = context.getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
+            ?: return false
+        return manager.isCharging
+    }
+
+    /**
+     * Whether a pass the app itself starts right now obeys the user's
+     * rules. The WorkManager job enforces the same rules through its
+     * constraints; the status poll needs this check on top.
+     */
+    private fun rulesAllowNow(settings: EngineSettingsData): Boolean {
+        if (settings.wifiOnly && !isWifiNetwork()) return false
+        if (settings.chargingOnly && !isCharging()) return false
+        return true
     }
 
     private fun settingsJson(settings: EngineSettingsData): JSONObject =
@@ -870,6 +964,7 @@ class BackupEnginePlugin : Plugin() {
             val lastRun = store.getKv("last_run_at")?.toLongOrNull() ?: 0
             val dueScan = System.currentTimeMillis() - lastRun > 60_000
             if (outcome.connection == "connected" && settings.autoBackup &&
+                rulesAllowNow(settings) &&
                 (backup.optInt("pending") > 0 || dueScan) &&
                 !BackupRunner.isGloballyRunning
             ) {
