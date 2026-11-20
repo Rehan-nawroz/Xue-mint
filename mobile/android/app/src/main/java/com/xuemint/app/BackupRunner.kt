@@ -441,7 +441,20 @@ class BackupRunner(
 /** Convenience for the plugin: where the pass stands right now. */
 fun EngineStore.backupState(): JSONObject {
     val counts = counts()
-    val phase = getKv("phase") ?: "idle"
+    var phase = getKv("phase") ?: "idle"
+    // An active phase with no pass alive means the process died mid-pass and
+    // the state rows were left behind; recover instead of showing a phantom
+    // progress bar forever.
+    if (phase in setOf("scanning", "hashing", "checking", "uploading") &&
+        !BackupRunner.isGloballyRunning
+    ) {
+        phase = "idle"
+        setKv("phase", "idle")
+        setKv("status_message", null)
+        setKv("current_photo", null)
+        setKv("current_sent", null)
+        setKv("current_total", null)
+    }
     val state = JSONObject()
     state.put("phase", phase)
     state.put("phonePhotos", counts.total)
