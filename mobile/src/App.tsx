@@ -29,6 +29,11 @@ export function App() {
     statusState.refresh();
   };
 
+  const handleBackupNow = async () => {
+    await engine.startBackup();
+    await statusState.refresh();
+  };
+
   return (
     <div className="app-shell text-ink">
       <main className="flex min-h-0 flex-1 flex-col">
@@ -58,6 +63,7 @@ export function App() {
             onSettingsChange={settingsState.save}
             onPair={() => setPairOpen(true)}
             onRetryStatus={statusState.refresh}
+            onBackupNow={handleBackupNow}
             diagnostics={diagnostics}
           />
         )}

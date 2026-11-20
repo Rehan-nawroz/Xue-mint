@@ -10,6 +10,7 @@ import type {
   NativeDiagnostics,
 } from '../engine';
 import { ChevronRightIcon, CloudIcon, CloudOffIcon, PairIcon } from '../components/icons';
+import { EnginePanel } from '../components/EnginePanel';
 import { NativeSpikePanel } from '../components/NativeSpikePanel';
 
 interface SettingsScreenProps {
@@ -21,6 +22,7 @@ interface SettingsScreenProps {
   onSettingsChange: (update: EngineSettingsUpdate) => Promise<void>;
   onPair: () => void;
   onRetryStatus: () => void;
+  onBackupNow: () => Promise<void>;
   diagnostics: NativeDiagnostics | null;
 }
 
@@ -100,11 +102,13 @@ export function SettingsScreen({
   onSettingsChange,
   onPair,
   onRetryStatus,
+  onBackupNow,
   diagnostics,
 }: SettingsScreenProps) {
   const { choice, setChoice } = useTheme();
   const paired = status?.pairedPc ?? null;
   const connected = status?.connection === 'connected';
+  const backupRunning = status?.phase !== undefined && status.phase !== 'idle';
 
   const themeOptions: Array<{ id: ThemeChoice; label: string }> = [
     { id: 'system', label: 'System' },
@@ -148,6 +152,23 @@ export function SettingsScreen({
             disabled={!settings || saving}
             onChange={(next) => void onSettingsChange({ chargingOnly: next })}
           />
+          <div className="flex items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold leading-tight">Run a backup now</p>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted">
+                Send everything your PC is missing, right away.
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="settings-backup-now"
+              className="flex-none rounded-full bg-brand px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-50"
+              disabled={backupRunning}
+              onClick={onBackupNow}
+            >
+              {backupRunning ? 'Backing up…' : 'Back up now'}
+            </button>
+          </div>
         </Section>
 
         <Section title="Your PC">
@@ -273,6 +294,17 @@ export function SettingsScreen({
           <Section
             title="Developer tools"
             description="Only shown on Android. Run these with the desktop app open on the same Wi-Fi."
+          >
+            <div className="p-3">
+              <EnginePanel engine={engine} />
+            </div>
+          </Section>
+        ) : null}
+
+        {diagnostics ? (
+          <Section
+            title="Native spike checks"
+            description="The four riskiest integration checks, kept from the first native build."
           >
             <div className="p-3">
               <NativeSpikePanel diagnostics={diagnostics} />

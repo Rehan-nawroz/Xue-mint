@@ -124,3 +124,25 @@ test('mock pairing and setting changes take effect', async ({ page }) => {
   await wifiOnly.click();
   await expect(wifiOnly).not.toBeChecked();
 });
+
+test('back up now drains the pending queue', async ({ page }) => {
+  await page.goto('/?latency=0');
+  await waitForLibrary(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByTestId('settings-backup-now').click();
+  await page.getByRole('button', { name: 'Photos' }).click();
+  const bar = page.getByTestId('backup-status');
+  await expect(bar).toContainText('Backing up');
+  await expect
+    .poll(async () => (await bar.textContent()) ?? '', { timeout: 15_000 })
+    .toContain('All photos are on your PC');
+});
+
+test('back up now on an offline PC pauses with a clear message', async ({ page }) => {
+  await page.goto('/?latency=0&scenario=offline');
+  await waitForLibrary(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByTestId('settings-backup-now').click();
+  await page.getByRole('button', { name: 'Photos' }).click();
+  await expect(page.getByTestId('backup-status')).toContainText('PC not reachable');
+});
