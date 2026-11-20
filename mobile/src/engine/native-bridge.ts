@@ -65,6 +65,12 @@ interface NativeEnginePlugin {
   backupState(): Promise<NativeBackupState>;
   scheduleBackupWork(): Promise<{ enqueued: boolean; pending: number }>;
   backupWorkStatus(): Promise<{ state: string; message: string | null }>;
+  mediaServer(): Promise<{ url: string }>;
+  timeline(options: {
+    cursor: string | null;
+    limit: number;
+  }): Promise<{ items: unknown[]; nextCursor: string | null; mediaBase: string }>;
+  deleteAsset(options: { assetId: string }): Promise<void>;
   enginePhotos(options: { limit: number }): Promise<{
     photos: NativeEnginePhoto[];
     counts: {
@@ -147,4 +153,39 @@ export function nativeBackupWorkStatus(): Promise<{
   message: string | null;
 }> {
   return native.backupWorkStatus();
+}
+
+/** The 127.0.0.1 media proxy the WebView loads images and videos from. */
+export function nativeMediaServer(): Promise<string> {
+  return native.mediaServer().then((result) => result.url);
+}
+
+/** Raw PC timeline item as the server returns it (camelCase JSON). */
+export interface NativeTimelineItem {
+  id: string;
+  hash: string;
+  filename: string | null;
+  type: string;
+  size: number;
+  takenAt: string | null;
+  width: number | null;
+  height: number | null;
+  addedAt: string;
+}
+
+export function nativeTimeline(
+  cursor: string | null,
+  limit: number
+): Promise<{ items: NativeTimelineItem[]; nextCursor: string | null; mediaBase: string }> {
+  return native
+    .timeline({ cursor, limit })
+    .then((result) => result as {
+      items: NativeTimelineItem[];
+      nextCursor: string | null;
+      mediaBase: string;
+    });
+}
+
+export function nativeDeleteAsset(assetId: string): Promise<void> {
+  return native.deleteAsset({ assetId });
 }

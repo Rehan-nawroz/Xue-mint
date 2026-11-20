@@ -2,16 +2,19 @@ import { Capacitor } from '@capacitor/core';
 import {
   nativeBackupState,
   nativeBackupWorkStatus,
+  nativeDeleteAsset,
   nativeDiscoverPc,
   nativeEnginePhotos,
   nativeEngineSettings,
+  nativeMediaServer,
   nativePairPc,
   nativePairingState,
   nativeSaveEngineSettings,
   nativeScheduleBackupWork,
   nativeStartBackup,
+  nativeTimeline,
 } from './native-bridge';
-import type { NativeEnginePhoto } from './native-bridge';
+import type { NativeEnginePhoto, NativeTimelineItem } from './native-bridge';
 import { parsePairingPayload } from './pairing';
 import type {
   BackupEngine,
@@ -28,12 +31,55 @@ import type {
   UploadOptions,
   UploadResult,
 } from './types';
+import type { GalleryAsset } from '@xue-mint/shared';
+
 
 const NOT_BACKED =
   'The native engine runs hashing, checking and uploading inside a backup pass. Use Start backup from the Settings screen; direct calls are not needed by the app.';
 
-const NOT_READY =
-  'The native engine cannot read the PC timeline yet. The PC library browsing arrives with the viewer work.';
+/**
+ * The 127.0.0.1 media proxy address, read once. Every gallery image and
+ * video loads through it, so the WebView never needs the device credential.
+ */
+let mediaBasePromise: Promise<string> | null = null;
+
+function mediaBase(): Promise<string> {
+  mediaBasePromise ??= nativeMediaServer();
+  return mediaBasePromise;
+}
+
+function assetFromItem(item: NativeTimelineItem, base: string): GalleryAsset {
+  const filename = item.filename ?? null;
+  return {
+    id: item.id,
+    type: item.type === 'video' ? 'video' : 'photo',
+    filename,
+    takenAt: item.takenAt ?? item.addedAt,
+    addedAt: item.addedAt,
+    width: item.width,
+    height: item.height,
+    size: item.size,
+    thumbUrl: `${base}/pc/thumb/${item.id}`,
+    originalUrl: `${base}/pc/original/${item.id}?name=${encodeURIComponent(filename ?? '')}`,
+  } as GalleryAsset;
+}
+
+/** The phone library as gallery tiles the shared grid can render. */
+export function phoneGalleryAsset(state: PhonePhotoState, base: string): GalleryAsset {
+  const photo = state.photo;
+  return {
+    id: `phone-${photo.id}`,
+    type: 'photo',
+    filename: photo.filename,
+    takenAt: photo.takenAt,
+    addedAt: photo.takenAt,
+    width: photo.width,
+    height: photo.height,
+    size: photo.size,
+    thumbUrl: `${base}/phone/thumb/${photo.id}`,
+    originalUrl: `${base}/phone/original/${photo.id}?name=${encodeURIComponent(photo.filename)}`,
+  } as GalleryAsset;
+}
 
 /** Full connection check (pinned TLS round trip) while idle. */
 const FULL_POLL_MS = 20_000;
@@ -136,8 +182,20 @@ class NativeEngine implements BackupEngine {
     return next;
   }
 
-  fetchTimeline(_cursor?: string | null, _limit?: number): Promise<TimelinePage> {
-    return Promise.reject(new Error(NOT_READY));
+  fetchTimeline(cursor: string | null = null, limit = 120): Promise<TimelinePage> {
+    return (async () => {
+      const base = await mediaBase();
+      const result = await nativeTimeline(cursor, limit);
+      return {
+        items: result.items.map((item) => assetFromItem(item, base)) as GalleryAsset[],
+        nextCursor: result.nextCursor,
+      };
+    })();
+  }
+
+  /** Asks the PC to drop the asset from its library index. */
+  async deleteAsset(assetId: string): Promise<void> {
+    await nativeDeleteAsset(assetId);
   }
 
   /** Kicks a backup pass and reports where the engine stands afterwards. */
@@ -165,12 +223,15 @@ class NativeEngine implements BackupEngine {
   }
 
   async photoStates(limit = 50): Promise<PhonePhotoState[]> {
+    const base = await mediaBase();
     const result = await nativeEnginePhotos(limit);
     return result.photos.map((photo) => ({
       photo: toPhonePhoto(photo),
       state: photo.state,
       hash: photo.hash,
       error: photo.lastError,
+      thumbUrl: `${base}/phone/thumb/${photo.id}`,
+      originalUrl: `${base}/phone/original/${photo.id}?name=${encodeURIComponent(photo.filename)}`,
     }));
   }
 

@@ -103,6 +103,9 @@ export interface PhonePhotoState {
   state: PhotoBackupState;
   hash: string | null;
   error: string | null;
+  /** Loadable URLs for the tile and the viewer, when the engine provides them. */
+  thumbUrl?: string;
+  originalUrl?: string;
 }
 
 /** Everything the UI needs to display, produced only by the engine. */
@@ -185,6 +188,9 @@ export interface BackupEngine {
 
   /** Per-photo backup states from the engine's own store, newest first. */
   photoStates(limit?: number): Promise<PhonePhotoState[]>;
+
+  /** Removes an asset from the PC's library index. */
+  deleteAsset(assetId: string): Promise<void>;
 
   /**
    * Queues a background backup under the current backup rules. Only the

@@ -332,7 +332,16 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
         state: stateFor(photo),
         hash: hashes.get(photo.id) ?? null,
         error: null,
+        thumbUrl: svgTile(String(phonePhotos.indexOf(photo) + 1), phonePhotos.indexOf(photo) * 29),
+        originalUrl: svgTile(`Photo ${phonePhotos.indexOf(photo) + 1}`, phonePhotos.indexOf(photo) * 29, true),
       }));
+    },
+
+    /** Deletes the sample asset from the sample PC's library. */
+    async deleteAsset(assetId: string): Promise<void> {
+      await delay(latencyMs);
+      const index = library.findIndex((asset) => asset.id === assetId);
+      if (index >= 0) library.splice(index, 1);
     },
 
     /**
