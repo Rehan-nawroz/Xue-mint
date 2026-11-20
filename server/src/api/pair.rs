@@ -59,24 +59,46 @@ pub async fn pair(
     let credential = URL_SAFE_NO_PAD.encode(credential_bytes);
     let credential_hash = sha256_hex(credential.as_bytes());
 
-    let device_id = uuid::Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO devices (id, name, public_key, credential_hash, paired_at, last_seen_at, revoked) \
-         VALUES (?, ?, ?, ?, ?, ?, 0)",
-    )
-    .bind(&device_id)
-    .bind(request.device_name.trim())
-    .bind(&public_key)
-    .bind(&credential_hash)
-    .bind(now_iso())
-    .bind(now_iso())
-    .execute(&state.pool)
-    .await?;
+    // A phone that pairs again keeps its identity: its public key already
+    // has a device row, so the row is updated with a fresh credential and
+    // un-revoked instead of colliding on the unique public key.
+    let existing: Option<String> = sqlx::query("SELECT id FROM devices WHERE public_key = ?")
+        .bind(&public_key)
+        .fetch_optional(&state.pool)
+        .await?
+        .map(|row| row.get::<String, _>("id"));
 
-    println!(
-        "Paired device \"{}\" ({device_id})",
-        request.device_name.trim()
-    );
+    let device_id = if let Some(id) = existing {
+        sqlx::query(
+            "UPDATE devices SET name = ?, credential_hash = ?, paired_at = ?, last_seen_at = ?, revoked = 0 \
+             WHERE id = ?",
+        )
+        .bind(request.device_name.trim())
+        .bind(&credential_hash)
+        .bind(now_iso())
+        .bind(now_iso())
+        .bind(&id)
+        .execute(&state.pool)
+        .await?;
+        println!("Re-paired device \"{}\" ({id})", request.device_name.trim());
+        id
+    } else {
+        let id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO devices (id, name, public_key, credential_hash, paired_at, last_seen_at, revoked) \
+             VALUES (?, ?, ?, ?, ?, ?, 0)",
+        )
+        .bind(&id)
+        .bind(request.device_name.trim())
+        .bind(&public_key)
+        .bind(&credential_hash)
+        .bind(now_iso())
+        .bind(now_iso())
+        .execute(&state.pool)
+        .await?;
+        println!("Paired device \"{}\" ({id})", request.device_name.trim());
+        id
+    };
     Ok(Json(PairResponse {
         device_id,
         credential,

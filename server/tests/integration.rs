@@ -1453,6 +1453,89 @@ async fn delete_behavior_controls_whether_the_file_is_removed() {
 }
 
 #[tokio::test]
+async fn re_pairing_the_same_device_updates_its_row_and_credential() {
+    let (base, pool) = start_server().await;
+    let http = client();
+    let key = BASE64.encode(b"stable-device-key");
+
+    let token = tokens::create_token(&pool, 600).await.unwrap();
+    let first: Value = http
+        .post(format!("{base}/pair"))
+        .json(&json!({ "token": token, "devicePublicKey": key, "deviceName": "Rana's phone" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let device_id = first["deviceId"].as_str().unwrap().to_string();
+    let first_credential = first["credential"].as_str().unwrap().to_string();
+
+    // Revoke the device, then pair the same public key again.
+    let revoked = http
+        .delete(format!("{base}/devices/{device_id}"))
+        .header("Authorization", auth(&first_credential))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revoked.status().as_u16(), 204);
+
+    let token = tokens::create_token(&pool, 600).await.unwrap();
+    let response = http
+        .post(format!("{base}/pair"))
+        .json(&json!({ "token": token, "devicePublicKey": key, "deviceName": "Rana's phone" }))
+        .send()
+        .await
+        .unwrap();
+    let status = response.status();
+    let body_text = response.text().await.unwrap_or_default();
+    assert_eq!(
+        status.as_u16(),
+        200,
+        "re-pairing the same public key must succeed; body: {body_text}"
+    );
+    let repaired: Value = serde_json::from_str(&body_text).unwrap();
+    let new_credential = repaired["credential"].as_str().unwrap().to_string();
+    assert_ne!(first_credential, new_credential);
+
+    // The existing row is reused, not duplicated.
+    let devices: Value = http
+        .get(format!("{base}/devices"))
+        .header("Authorization", auth(&new_credential))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = devices["devices"].as_array().expect("device list");
+    let matching: Vec<&Value> = rows
+        .iter()
+        .filter(|row| row["id"].as_str() == Some(device_id.as_str()))
+        .collect();
+    assert_eq!(matching.len(), 1, "one row per public key");
+    assert_eq!(matching[0]["revoked"].as_bool(), Some(false));
+
+    // The fresh credential works; the revoked one no longer does.
+    let ok = http
+        .post(format!("{base}/assets/check"))
+        .header("Authorization", auth(&new_credential))
+        .json(&json!({ "hashes": [] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status().as_u16(), 200);
+    let old = http
+        .post(format!("{base}/assets/check"))
+        .header("Authorization", auth(&first_credential))
+        .json(&json!({ "hashes": [] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(old.status().as_u16(), 401);
+}
+
+#[tokio::test]
 async fn pairing_code_contains_connection_details_and_is_single_use() {
     let (base, _pool) = start_server().await;
     let http = client();
