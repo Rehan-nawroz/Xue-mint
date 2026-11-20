@@ -178,3 +178,18 @@ test('deleting from the PC library removes the photo and refreshes the status', 
   const tilesAfter = await page.locator('[data-xm-tile]').count();
   expect(tilesAfter).toBeLessThan(tilesBefore);
 });
+
+test('battery guidance shows the phone maker steps and an exemption ask', async ({ page }) => {
+  await page.goto('/?latency=0');
+  await waitForLibrary(page);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const state = page.getByTestId('battery-state');
+  await expect(state).toContainText('Battery optimization may pause backup');
+  // The mock reports a non-OEM maker, so the generic Android steps lead.
+  const guidance = page.getByTestId('battery-guidance');
+  await expect(guidance).toContainText('Pixel and other Android');
+  await expect(guidance).toContainText('choose "Unrestricted"');
+  await expect(page.getByTestId('battery-exempt')).toBeVisible();
+  await expect(page.getByTestId('battery-open-settings')).toBeVisible();
+  await expect(page.getByTestId('allow-notifications')).toBeVisible();
+});

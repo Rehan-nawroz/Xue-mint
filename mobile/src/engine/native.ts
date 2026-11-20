@@ -3,12 +3,16 @@ import {
   nativeBackupState,
   nativeBackupWorkStatus,
   nativeDeleteAsset,
+  nativeDeviceStatus,
   nativeDiscoverPc,
   nativeEnginePhotos,
   nativeEngineSettings,
   nativeMediaServer,
+  nativeOpenBatterySettings,
   nativePairPc,
   nativePairingState,
+  nativeRequestBatteryExemption,
+  nativeRequestNotificationPermission,
   nativeSaveEngineSettings,
   nativeScheduleBackupWork,
   nativeStartBackup,
@@ -249,6 +253,22 @@ class NativeEngine implements BackupEngine {
       // The queue answer is already useful on its own.
     }
     return { ...outcome, workState };
+  }
+
+  async deviceStatus() {
+    return nativeDeviceStatus();
+  }
+
+  async requestBatteryExemption(): Promise<{ granted: boolean }> {
+    return { granted: await nativeRequestBatteryExemption() };
+  }
+
+  async openBatterySettings(): Promise<void> {
+    await nativeOpenBatterySettings();
+  }
+
+  async requestNotificationPermission(): Promise<{ granted: boolean }> {
+    return { granted: await nativeRequestNotificationPermission() };
   }
 
   /** Publishes state updates while the UI is open. */

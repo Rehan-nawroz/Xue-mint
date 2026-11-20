@@ -135,6 +135,17 @@ export interface EngineSettings {
   autoBackup: boolean;
 }
 
+/** Whether the phone's power and notification settings allow backup. */
+export interface DeviceHealth {
+  /** True while Android may pause the app in the background. */
+  batteryOptimized: boolean;
+  /** Lowercase maker, for example "samsung" — picks the guidance text. */
+  manufacturer: string;
+  model: string;
+  /** Whether backup notifications may be shown (Android 13+). */
+  notificationsAllowed: boolean;
+}
+
 export type EngineSettingsUpdate = Partial<EngineSettings>;
 
 export interface TimelinePage {
@@ -197,6 +208,18 @@ export interface BackupEngine {
    * native engine implements it; the mock leaves it unset.
    */
   scheduleBackgroundBackup?(): Promise<{ enqueued: boolean; pending: number; workState?: string }>;
+
+  /** Battery-optimization and notification state of the phone. */
+  deviceStatus?(): Promise<DeviceHealth>;
+
+  /** Asks Android to exempt the app from battery optimization. */
+  requestBatteryExemption?(): Promise<{ granted: boolean }>;
+
+  /** Opens the system battery-optimization list. */
+  openBatterySettings?(): Promise<void>;
+
+  /** Runtime ask for the notification permission (Android 13+). */
+  requestNotificationPermission?(): Promise<{ granted: boolean }>;
 
   /** Subscribes to status changes caused by engine work. */
   subscribe(listener: (status: BackupStatus) => void): () => void;

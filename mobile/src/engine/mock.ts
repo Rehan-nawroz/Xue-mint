@@ -2,6 +2,7 @@ import type { GalleryAsset } from '@xue-mint/shared';
 import { parsePairingPayload } from './pairing';
 import type {
   BackupEngine,
+  DeviceHealth,
   BackupStatus,
   EngineSettings,
   EngineSettingsUpdate,
@@ -306,6 +307,38 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
       settings = { ...settings, ...update };
       emit();
       return { ...settings };
+    },
+
+    async deviceStatus(): Promise<DeviceHealth> {
+      await delay(Math.min(latencyMs, 50));
+      // The mock presents a battery-optimization warning so the guidance
+      // screen stays exercisable in the browser.
+      return {
+        batteryOptimized: true,
+        manufacturer: 'mock',
+        model: 'browser',
+        notificationsAllowed:
+          typeof Notification !== 'undefined' && Notification.permission === 'granted',
+      };
+    },
+
+    async requestBatteryExemption(): Promise<{ granted: boolean }> {
+      await delay(Math.min(latencyMs, 50));
+      return { granted: false };
+    },
+
+    async openBatterySettings(): Promise<void> {
+      await delay(Math.min(latencyMs, 50));
+    },
+
+    async requestNotificationPermission(): Promise<{ granted: boolean }> {
+      await delay(Math.min(latencyMs, 50));
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+      return {
+        granted: typeof Notification !== 'undefined' && Notification.permission === 'granted',
+      };
     },
 
     async fetchTimeline(cursor: string | null = null, limit = 120): Promise<TimelinePage> {

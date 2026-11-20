@@ -2,6 +2,7 @@ import { registerPlugin } from '@capacitor/core';
 import type {
   BackupPhase,
   ConnectionState,
+  DeviceHealth,
   DiscoveredPc,
   EngineSettings,
   PairedPc,
@@ -81,6 +82,10 @@ interface NativeEnginePlugin {
     };
   }>;
   engineSettings(): Promise<{ settings: EngineSettings }>;
+  deviceStatus(): Promise<{ batteryOptimized: boolean; manufacturer: string; model: string; notificationsAllowed: boolean }>;
+  requestBatteryExemption(): Promise<{ granted: boolean }>;
+  openBatterySettings(): Promise<void>;
+  requestNotificationPermission(): Promise<{ granted: boolean }>;
   saveEngineSettings(options: {
     settings: EngineSettings;
   }): Promise<{ settings: EngineSettings }>;
@@ -188,4 +193,28 @@ export function nativeTimeline(
 
 export function nativeDeleteAsset(assetId: string): Promise<void> {
   return native.deleteAsset({ assetId });
+}
+
+/** Battery-optimization and notification state of the phone. */
+export function nativeDeviceStatus(): Promise<DeviceHealth> {
+  return native.deviceStatus().then((result) => ({
+    batteryOptimized: result.batteryOptimized,
+    manufacturer: result.manufacturer,
+    model: result.model,
+    notificationsAllowed: result.notificationsAllowed,
+  }));
+}
+
+export function nativeRequestBatteryExemption(): Promise<boolean> {
+  return native.requestBatteryExemption().then((result) => result.granted);
+}
+
+export function nativeOpenBatterySettings(): Promise<void> {
+  return native.openBatterySettings();
+}
+
+export function nativeRequestNotificationPermission(): Promise<boolean> {
+  return native
+    .requestNotificationPermission()
+    .then((result) => result.granted);
 }
