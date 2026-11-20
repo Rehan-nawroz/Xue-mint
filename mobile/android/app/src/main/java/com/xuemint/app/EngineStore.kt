@@ -147,7 +147,7 @@ class EngineStore(context: Context) :
                 val placeholders = chunk.joinToString(",") { "?" }
                 db.execSQL(
                     "DELETE FROM $TABLE_PHOTOS WHERE media_id IN ($placeholders)",
-                    arrayOf(chunk)
+                    arrayOf(*chunk.toTypedArray())
                 )
             }
             db.setTransactionSuccessful()
