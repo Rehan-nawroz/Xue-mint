@@ -431,8 +431,11 @@ class BackupEnginePlugin : Plugin() {
                                 val json = JSONObject(body)
                                 val result = JSObject()
                                 result.put("items", json.optJSONArray("items") ?: JSArray())
-                                val next = json.optString("nextCursor")
-                                result.put("nextCursor", if (next.isEmpty()) JSONObject.NULL else next)
+                                // optString turns a JSON null into the string
+                                // "null"; the end of the library must stay null.
+                                val next = if (json.isNull("nextCursor")) null
+                                else json.optString("nextCursor").ifEmpty { null }
+                                result.put("nextCursor", next ?: JSONObject.NULL)
                                 result.put("mediaBase", mediaServer?.baseUrl ?: JSONObject.NULL)
                                 call.resolve(result)
                                 return@execute
