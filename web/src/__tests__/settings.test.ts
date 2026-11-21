@@ -19,23 +19,38 @@ describe('settings validation', () => {
   });
 
   it('rejects an empty or relative folder', () => {
-    expect(validateSettings({ photosFolder: '', deleteBehavior: 'index_only', port: '8427' }))
-      .toEqual({ photosFolder: 'Enter the photos folder path.' });
     expect(
-      validateSettings({ photosFolder: 'Photos', deleteBehavior: 'index_only', port: '8427' })
-        .photosFolder
+      validateSettings({
+        photosFolder: '',
+        deleteBehavior: 'index_only',
+        mirrorFolder: '',
+        port: '8427',
+      })
+    ).toEqual({ photosFolder: 'Enter the photos folder path.' });
+    expect(
+      validateSettings({
+        photosFolder: 'Photos',
+        deleteBehavior: 'index_only',
+        mirrorFolder: '',
+        port: '8427',
+      }).photosFolder
     ).toContain('full path');
   });
 
   it('requires a whole-number port in the allowed range', () => {
     expect(
-      validateSettings({ photosFolder: 'C:\\Photos', deleteBehavior: 'index_only', port: '80' })
-        .port
+      validateSettings({
+        photosFolder: 'C:\\Photos',
+        deleteBehavior: 'index_only',
+        mirrorFolder: '',
+        port: '80',
+      }).port
     ).toContain('1024');
     expect(
       validateSettings({
         photosFolder: 'C:\\Photos',
         deleteBehavior: 'index_only',
+        mirrorFolder: '',
         port: '70000',
       }).port
     ).toContain('1024');
@@ -43,6 +58,7 @@ describe('settings validation', () => {
       validateSettings({
         photosFolder: 'C:\\Photos',
         deleteBehavior: 'index_only',
+        mirrorFolder: '',
         port: '8a27',
       }).port
     ).toContain('whole number');
@@ -52,6 +68,7 @@ describe('settings validation', () => {
     const errors = validateSettings({
       photosFolder: 'C:\\Photos',
       deleteBehavior: 'delete_file',
+      mirrorFolder: '',
       port: '9000',
     });
     expect(hasSettingsErrors(errors)).toBe(false);
@@ -59,7 +76,24 @@ describe('settings validation', () => {
     expect(formFromSettings(defaultSettings)).toEqual({
       photosFolder: 'C:\\Photos',
       deleteBehavior: 'index_only',
+      mirrorFolder: '',
       port: '8427',
     });
+
+    const mirrorErrors = validateSettings({
+      photosFolder: 'C:\\Photos',
+      deleteBehavior: 'index_only',
+      mirrorFolder: 'C:\\Photos',
+      port: '8427',
+    });
+    expect(mirrorErrors.mirrorFolder).toContain('different');
+    expect(
+      validateSettings({
+        photosFolder: 'C:\\Photos',
+        deleteBehavior: 'index_only',
+        mirrorFolder: 'Backup',
+        port: '8427',
+      }).mirrorFolder
+    ).toContain('full path');
   });
 });

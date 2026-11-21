@@ -113,6 +113,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
       const saved = await api.saveSettings({
         photosFolder: form.photosFolder.trim(),
         deleteBehavior: form.deleteBehavior,
+        mirrorFolder: form.mirrorFolder.trim(),
         port: Number(form.port.trim()),
       });
       setSettings(saved);
@@ -211,6 +212,38 @@ export function SettingsPage({ api }: SettingsPageProps) {
             Applies to deletions from now on. Deleting from the library never touches files
             unless you choose the second option.
           </p>
+        </div>
+
+        <div className="field">
+          <label htmlFor="mirror-folder">Mirror folder (optional)</label>
+          <input
+            id="mirror-folder"
+            type="text"
+            value={form.mirrorFolder}
+            spellCheck={false}
+            placeholder="E:\\PhotoBackup"
+            aria-invalid={Boolean(fieldErrors.mirrorFolder)}
+            aria-describedby={
+              fieldErrors.mirrorFolder ? 'mirror-folder-error mirror-folder-hint' : 'mirror-folder-hint'
+            }
+            onChange={(event) => update('mirrorFolder', event.target.value)}
+          />
+          <p className="field__hint" id="mirror-folder-hint">
+            Keeps a second copy of every photo in another folder or on an external
+            drive. Leave it empty to keep one copy. Existing photos are copied
+            when you save a new mirror folder.
+          </p>
+          {settings.mirrorFolder && !settings.mirrorAvailable ? (
+            <p className="notice notice--warning" role="status">
+              The mirror folder is not reachable right now. New photos are saved on
+              this PC only until that drive is connected again.
+            </p>
+          ) : null}
+          {fieldErrors.mirrorFolder ? (
+            <p className="field__error" id="mirror-folder-error" role="alert">
+              {fieldErrors.mirrorFolder}
+            </p>
+          ) : null}
         </div>
 
         <div className="field field--short">

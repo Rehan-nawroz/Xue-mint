@@ -3,11 +3,13 @@ import type { DeleteBehavior, ServerSettings } from '../api/types';
 export interface SettingsForm {
   photosFolder: string;
   deleteBehavior: DeleteBehavior;
+  mirrorFolder: string;
   port: string;
 }
 
 export interface SettingsFormErrors {
   photosFolder?: string;
+  mirrorFolder?: string;
   port?: string;
 }
 
@@ -30,6 +32,15 @@ export function validateSettings(values: SettingsForm): SettingsFormErrors {
     errors.photosFolder = 'Use a full path, for example D:\\Photos.';
   }
 
+  const mirror = values.mirrorFolder.trim();
+  if (mirror) {
+    if (!isAbsoluteFolderPath(mirror)) {
+      errors.mirrorFolder = 'Use a full path, for example E:\\PhotoBackup.';
+    } else if (normalizeFolder(mirror) === normalizeFolder(values.photosFolder)) {
+      errors.mirrorFolder = 'Choose a folder different from the photos folder.';
+    }
+  }
+
   const portText = values.port.trim();
   if (!portText) {
     errors.port = 'Enter a port between 1024 and 65535.';
@@ -44,13 +55,18 @@ export function validateSettings(values: SettingsForm): SettingsFormErrors {
 }
 
 export function hasSettingsErrors(errors: SettingsFormErrors): boolean {
-  return Boolean(errors.photosFolder || errors.port);
+  return Boolean(errors.photosFolder || errors.mirrorFolder || errors.port);
+}
+
+function normalizeFolder(value: string): string {
+  return value.trim().replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
 }
 
 export function formFromSettings(settings: ServerSettings): SettingsForm {
   return {
     photosFolder: settings.photosFolder,
     deleteBehavior: settings.deleteBehavior,
+    mirrorFolder: settings.mirrorFolder,
     port: String(settings.port),
   };
 }

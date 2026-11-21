@@ -85,6 +85,8 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
   let settings: ServerSettings = {
     deleteBehavior: 'index_only',
     photosFolder: 'C:\\Users\\You\\Pictures\\Xue-Mint',
+    mirrorFolder: '',
+    mirrorAvailable: true,
     port: 8427,
     activePhotosFolder: 'C:\\Users\\You\\Pictures\\Xue-Mint',
     activePort: 8427,
@@ -248,6 +250,13 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
       }
       if (update.photosFolder !== undefined) {
         settings = { ...settings, photosFolder: update.photosFolder };
+      }
+      if (update.mirrorFolder !== undefined) {
+        settings = {
+          ...settings,
+          mirrorFolder: update.mirrorFolder,
+          mirrorAvailable: true,
+        };
       }
       if (update.port !== undefined) {
         settings = { ...settings, port: update.port };

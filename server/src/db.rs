@@ -28,6 +28,9 @@ pub async fn apply_defaults(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await?;
+    sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('mirror_folder', '')")
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

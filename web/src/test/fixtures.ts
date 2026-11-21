@@ -74,6 +74,8 @@ export const defaultConnection: ConnectionStatus = {
 export const defaultSettings: ServerSettings = {
   deleteBehavior: 'index_only',
   photosFolder: 'C:\\Photos',
+  mirrorFolder: '',
+  mirrorAvailable: true,
   port: 8427,
   activePhotosFolder: 'C:\\Photos',
   activePort: 8427,
@@ -113,6 +115,8 @@ export function makeApi(overrides: Partial<GalleryApi> = {}): GalleryApi {
       ...update,
       deleteBehavior: update.deleteBehavior ?? defaultSettings.deleteBehavior,
       photosFolder: update.photosFolder ?? defaultSettings.photosFolder,
+      mirrorFolder: update.mirrorFolder ?? defaultSettings.mirrorFolder,
+      mirrorAvailable: true,
       port: update.port ?? defaultSettings.port,
     }),
     ...overrides,

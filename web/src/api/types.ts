@@ -47,6 +47,10 @@ export interface ConnectionStatus {
 export interface ServerSettings {
   deleteBehavior: DeleteBehavior;
   photosFolder: string;
+  /** Optional second folder/drive that receives a copy of every photo. */
+  mirrorFolder: string;
+  /** False when a mirror is configured but its drive is not connected. */
+  mirrorAvailable: boolean;
   port: number;
   activePhotosFolder: string;
   activePort: number;
@@ -56,6 +60,8 @@ export interface ServerSettings {
 export interface SettingsUpdate {
   deleteBehavior?: DeleteBehavior;
   photosFolder?: string;
+  /** Empty string removes the mirror. */
+  mirrorFolder?: string;
   port?: number;
 }
 

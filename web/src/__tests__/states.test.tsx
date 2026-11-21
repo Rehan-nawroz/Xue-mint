@@ -122,6 +122,7 @@ describe('SettingsPage', () => {
       expect(saveSettings).toHaveBeenCalledWith({
         photosFolder: 'C:\\Photos',
         deleteBehavior: 'index_only',
+        mirrorFolder: '',
         port: 9000,
       })
     );

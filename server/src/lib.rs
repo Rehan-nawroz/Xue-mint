@@ -10,6 +10,7 @@ pub mod errors;
 pub mod firewall;
 pub mod ingest;
 pub mod media;
+pub mod mirror;
 pub mod state;
 pub mod tokens;
 pub mod watch;
@@ -77,6 +78,12 @@ pub async fn run_server(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     ingest::scan_existing(&state).await?;
     // Keep the handle in the shared state so settings can re-target it later.
     state.set_watcher(watch::start(state.clone())?);
+
+    // A configured mirror catches up with files stored while its drive was away.
+    let mirror_state = state.clone();
+    tokio::spawn(async move {
+        mirror::backfill(&mirror_state).await;
+    });
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], cfg.port));
     let listener = std::net::TcpListener::bind(addr)?;

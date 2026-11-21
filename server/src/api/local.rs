@@ -115,6 +115,8 @@ async fn ensure_local_credential(state: &AppState) -> Result<String, ApiError> {
 pub struct SettingsDto {
     pub delete_behavior: String,
     pub photos_folder: String,
+    pub mirror_folder: String,
+    pub mirror_available: bool,
     pub port: u16,
     pub active_photos_folder: String,
     pub active_port: u16,
@@ -126,6 +128,7 @@ pub struct SettingsDto {
 pub struct SettingsUpdate {
     pub delete_behavior: Option<String>,
     pub photos_folder: Option<String>,
+    pub mirror_folder: Option<String>,
     pub port: Option<u16>,
 }
 
@@ -140,6 +143,12 @@ async fn read_settings(state: &AppState) -> Result<SettingsDto, ApiError> {
         .clone()
         .unwrap_or_else(|| active_photos.to_string_lossy().into_owned());
 
+    let mirror_folder = get_setting(&state.pool, "mirror_folder")
+        .await?
+        .unwrap_or_default();
+    let mirror_available =
+        mirror_folder.trim().is_empty() || PathBuf::from(mirror_folder.trim()).is_dir();
+
     let stored_port = get_setting(&state.pool, "port")
         .await?
         .and_then(|value| value.parse::<u16>().ok());
@@ -152,6 +161,8 @@ async fn read_settings(state: &AppState) -> Result<SettingsDto, ApiError> {
     Ok(SettingsDto {
         delete_behavior,
         photos_folder,
+        mirror_folder,
+        mirror_available,
         port,
         active_photos_folder: active_photos.to_string_lossy().into_owned(),
         active_port: state.cfg.port,
@@ -205,10 +216,41 @@ pub async fn put_settings(
         None => None,
     };
 
+    let mirror = match &update.mirror_folder {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                Some(String::new())
+            } else {
+                let path = PathBuf::from(trimmed);
+                if !path.is_absolute() {
+                    return Err(ApiError::bad_request(
+                        "Enter the full path of the mirror folder, for example E:\\PhotoBackup.",
+                    ));
+                }
+                Some(path.to_string_lossy().into_owned())
+            }
+        }
+        None => None,
+    };
+    if let Some(mirror) = mirror.as_deref().filter(|value| !value.is_empty()) {
+        let photos = folder
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| state.photos_dir());
+        if same_folder(&photos, std::path::Path::new(mirror)) {
+            return Err(ApiError::bad_request(
+                "The mirror folder must be different from the photos folder.",
+            ));
+        }
+    }
+
     let next_folder = folder.clone();
+    let mirror_to_start = mirror.clone().filter(|value| !value.is_empty());
     let writes = [
         ("delete_behavior", update.delete_behavior),
         ("photos_folder", folder),
+        ("mirror_folder", mirror),
         ("port", update.port.map(|p| p.to_string())),
     ];
     for (key, value) in writes {
@@ -236,6 +278,15 @@ pub async fn put_settings(
             if let Err(error) = crate::ingest::scan_existing(&scan_state).await {
                 println!("Scan after folder change failed: {error}");
             }
+        });
+    }
+
+    // A newly configured mirror gets a full copy of the existing library. When
+    // the drive is unplugged this simply does nothing; the gallery shows the warning.
+    if mirror_to_start.is_some() {
+        let mirror_state = state.clone();
+        tokio::spawn(async move {
+            crate::mirror::backfill(&mirror_state).await;
         });
     }
 
@@ -269,7 +320,7 @@ pub async fn status(
                 COALESCE(SUM(CASE WHEN type = 'video' THEN 1 ELSE 0 END), 0) AS videos, \
                 COALESCE(SUM(size), 0) AS bytes, \
                 MAX(added_at) AS last_added \
-         FROM assets",
+         FROM assets WHERE hidden = 0",
     )
     .fetch_one(&state.pool)
     .await?;
@@ -412,6 +463,17 @@ fn primary_ipv4() -> Option<std::net::IpAddr> {
     (!ip.is_loopback()).then_some(ip)
 }
 
+/// Case-insensitive path comparison; Windows paths may use either separator.
+fn same_folder(left: &std::path::Path, right: &std::path::Path) -> bool {
+    let normalize = |path: &std::path::Path| {
+        path.to_string_lossy()
+            .trim_end_matches(['\\', '/'])
+            .replace('/', "\\")
+            .to_ascii_lowercase()
+    };
+    normalize(left) == normalize(right)
+}
+
 fn server_name() -> String {
     std::env::var("COMPUTERNAME")
         .ok()
@@ -508,12 +570,20 @@ pub async fn factory_reset(
 }
 
 /// The actual wipe, shared by the gallery button and the phone request.
-pub(crate) async fn wipe_library(
-    state: &AppState,
-    delete_files: bool,
-) -> Result<usize, ApiError> {
-    sqlx::query("DELETE FROM uploads").execute(&state.pool).await?;
-    sqlx::query("DELETE FROM assets").execute(&state.pool).await?;
+pub(crate) async fn wipe_library(state: &AppState, delete_files: bool) -> Result<usize, ApiError> {
+    let stored_paths: Vec<String> = sqlx::query("SELECT path FROM assets")
+        .fetch_all(&state.pool)
+        .await?
+        .into_iter()
+        .filter_map(|row| row.try_get(0).ok())
+        .collect();
+
+    sqlx::query("DELETE FROM uploads")
+        .execute(&state.pool)
+        .await?;
+    sqlx::query("DELETE FROM assets")
+        .execute(&state.pool)
+        .await?;
     sqlx::query("DELETE FROM pairing_tokens")
         .execute(&state.pool)
         .await?;
@@ -524,6 +594,9 @@ pub(crate) async fn wipe_library(
 
     let mut files_removed = 0usize;
     if delete_files {
+        for stored_path in &stored_paths {
+            crate::mirror::remove_stored(state, stored_path).await;
+        }
         files_removed = clear_dir_contents(&state.photos_dir())
             .map_err(|error| ApiError::internal(error.to_string()))?;
     }
@@ -571,13 +644,14 @@ pub async fn import_asset(
         .get("x-filename")
         .and_then(|value| value.to_str().ok())
         .map(|value| {
-            percent_encoding::percent_decode_str(value).decode_utf8_lossy().into_owned()
+            let decoded = percent_encoding::percent_decode_str(value).decode_utf8_lossy();
+            crate::media::clean_display_name(&decoded)
         })
         .filter(|name| !name.trim().is_empty())
         .ok_or_else(|| ApiError::bad_request("x-filename header is required"))?;
     let ext = std::path::Path::new(&filename)
         .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
+        .map(|extension| crate::media::sanitize_ext(&extension.to_string_lossy()))
         .unwrap_or_default();
     if !crate::media::is_watched_ext(&ext) {
         return Err(ApiError::bad_request(
@@ -586,11 +660,11 @@ pub async fn import_asset(
     }
 
     let mut bytes = body.into_data_stream();
-    let temp_path = state.cfg.tmp_dir().join(format!(
-        "import-{}.{}",
-        uuid::Uuid::new_v4().simple(),
-        ext
-    ));
+    let temp_path =
+        state
+            .cfg
+            .tmp_dir()
+            .join(format!("import-{}.{}", uuid::Uuid::new_v4().simple(), ext));
     {
         let mut file = tokio::fs::File::create(&temp_path)
             .await
@@ -637,11 +711,24 @@ pub async fn import_asset(
         .execute(&state.pool)
         .await
         .map_err(|error| ApiError::internal(error.to_string()))?;
+    let stored_path: Option<String> = sqlx::query("SELECT path FROM assets WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?
+        .and_then(|row| row.try_get(0).ok());
+    if let Some(stored_path) = stored_path {
+        crate::api::assets::link_uploaded_companions(&state, &id, &filename, &stored_path).await;
+    }
 
     println!(
         "Imported {} ({})",
         filename,
-        if finalized.duplicate { "duplicate, indexed" } else { "indexed" }
+        if finalized.duplicate {
+            "duplicate, indexed"
+        } else {
+            "indexed"
+        }
     );
     Ok(Json(ImportDto {
         id,
