@@ -11,6 +11,8 @@ export interface ViewerProps {
   onIndexChange: (index: number) => void;
   /** Removes the current asset; the viewer stays on the next available item. */
   onDelete?: (asset: GalleryAsset) => Promise<void>;
+  /** Saves the current asset into the device's gallery (mobile). */
+  onDownload?: (asset: GalleryAsset) => Promise<void>;
   /** Renames the current asset and resolves to the stored file name. */
   onRename?: (asset: GalleryAsset, filename: string) => Promise<string>;
   /** Horizontal distance in pixels that counts as a swipe. */
@@ -31,6 +33,7 @@ export function Viewer({
   onClose,
   onIndexChange,
   onDelete,
+  onDownload,
   onRename,
   swipeThreshold = 50,
 }: ViewerProps) {
@@ -39,6 +42,7 @@ export function Viewer({
   const [failedId, setFailedId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [action, setAction] = useState<'rename' | 'delete' | null>(null);
+  const [saved, setSaved] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -200,6 +204,10 @@ export function Viewer({
   if (!asset) return null;
 
   const failed = failedId === asset.id;
+  // A fresh asset replaces the previous download confirmation.
+  useEffect(() => {
+    setSaved(false);
+  }, [asset?.id]);
   const mediaKey = `${asset.id}-${attempt}`;
 
   return (
@@ -219,8 +227,34 @@ export function Viewer({
         <span className="xm-viewer__counter">
           {index + 1} of {assets.length}
         </span>
-        {onRename || onDelete ? (
+        {onRename || onDelete || onDownload ? (
           <div className="xm-viewer__actions">
+            {onDownload ? (
+              <button
+                type="button"
+                className="xm-viewer__action"
+                disabled={working || saved}
+                onClick={async () => {
+                  if (!asset || working || saved) return;
+                  setWorking(true);
+                  setActionError(null);
+                  try {
+                    await onDownload(asset);
+                    setSaved(true);
+                  } catch (error) {
+                    setActionError(
+                      error instanceof Error && error.message
+                        ? error.message
+                        : 'The download failed.'
+                    );
+                  } finally {
+                    setWorking(false);
+                  }
+                }}
+              >
+                {saved ? 'Saved ✓' : 'Download'}
+              </button>
+            ) : null}
             {onRename ? (
               <button type="button" className="xm-viewer__action" onClick={openRename}>
                 Rename

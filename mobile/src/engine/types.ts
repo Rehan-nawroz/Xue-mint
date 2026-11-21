@@ -224,6 +224,9 @@ export interface BackupEngine {
   /** Wipes the engine library, rules and pairing; the phone gallery stays. */
   factoryReset?(): Promise<void>;
 
+  /** Saves a PC asset into the phone's gallery. */
+  downloadAsset?(asset: { id: string; filename: string | null; type: string }): Promise<void>;
+
   /** Subscribes to status changes caused by engine work. */
   subscribe(listener: (status: BackupStatus) => void): () => void;
 }

@@ -42,6 +42,15 @@ export function App() {
     statusState.refresh();
   };
 
+  const handleDownload = async (asset: GalleryAsset) => {
+    if (!engine.downloadAsset) throw new Error('This app cannot download yet.');
+    await engine.downloadAsset({
+      id: asset.id,
+      filename: asset.filename,
+      type: asset.type,
+    });
+  };
+
   return (
     <div className="app-shell text-ink">
       <main className="flex min-h-0 flex-1 flex-col">
@@ -54,6 +63,7 @@ export function App() {
             onRefreshStatus={statusState.refresh}
             onPair={() => setPairOpen(true)}
             onOpen={(_asset, index) => setViewerIndex(index)}
+            engine={engine}
           />
         ) : screen === 'library' ? (
           <LibraryScreen
@@ -87,6 +97,7 @@ export function App() {
           onClose={() => setViewerIndex(null)}
           onIndexChange={setViewerIndex}
           onDelete={handleDelete}
+          onDownload={handleDownload}
         />
       ) : null}
 

@@ -7,6 +7,7 @@ import {
   nativeDiscoverPc,
   nativeEnginePhotos,
   nativeEngineSettings,
+  nativeDownloadAsset,
   nativeFactoryReset,
   nativeMediaServer,
   nativeOpenBatterySettings,
@@ -274,6 +275,15 @@ class NativeEngine implements BackupEngine {
 
   async factoryReset(): Promise<void> {
     await nativeFactoryReset();
+  }
+
+  async downloadAsset(asset: { id: string; filename: string | null; type: string }): Promise<void> {
+    const saved = await nativeDownloadAsset({
+      assetId: asset.id,
+      filename: asset.filename ?? asset.id + '.jpg',
+      mimeType: asset.type === 'video' ? 'video/mp4' : 'image/jpeg',
+    });
+    console.log('BackupEngine: saved ' + saved.filename + ' into ' + saved.savedTo);
   }
 
   /** Publishes state updates while the UI is open. */

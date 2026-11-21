@@ -22,6 +22,9 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import okhttp3.MediaType.Companion.toMediaType
+import okio.buffer
+import okio.sink
+import okio.source
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
@@ -1005,6 +1008,101 @@ class BackupEnginePlugin : Plugin() {
         call.resolve()
     }
 
+    /**
+     * Saves a PC asset into the phone's gallery: the original is fetched
+     * over pinned TLS and written through MediaStore into Pictures/Xue-Mint,
+     * so it appears in the phone's gallery like any downloaded photo.
+     */
+    @PluginMethod
+    fun downloadAsset(call: PluginCall) {
+        val assetId = call.getString("assetId")?.trim().orEmpty()
+        if (assetId.isEmpty()) {
+            call.reject("No asset was given.")
+            return
+        }
+        val filename = call.getString("filename")?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: "$assetId.jpg"
+        val mimeType = call.getString("mimeType")?.takeUnless { it.isNullOrEmpty() }
+            ?: "image/jpeg"
+        executor.execute {
+            val pairing = PairingStore.load(context)
+            if (pairing == null) {
+                call.reject("Pair with your PC first.")
+                return@execute
+            }
+            for (address in pairing.addresses) {
+                val trimmed = address.trim()
+                try {
+                    val client = PinnedNet.client(pairing.fingerprint, 10, 60, 0, 60)
+                    val request = Request.Builder()
+                        .url("https://$trimmed:${pairing.port}/assets/$assetId/original")
+                        .header("Authorization", "Device ${pairing.credential}")
+                        .get()
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        if (response.code == 404) {
+                            call.reject("That photo is no longer on your PC.")
+                            return@execute
+                        }
+                        if (response.code != 200) {
+                            call.reject("Your PC answered with HTTP ${response.code}.")
+                            return@execute
+                        }
+                        val body = response.body ?: run {
+                            call.reject("Your PC sent an empty answer.")
+                            return@execute
+                        }
+                        val resolver = context.contentResolver
+                        val collection =
+                            android.provider.MediaStore.Images.Media.getContentUri(
+                                android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY
+                            )
+                        val details = android.content.ContentValues().apply {
+                            put(
+                                android.provider.MediaStore.Images.Media.DISPLAY_NAME,
+                                filename
+                            )
+                            put(android.provider.MediaStore.Images.Media.MIME_TYPE, mimeType)
+                            put(
+                                android.provider.MediaStore.Images.Media.RELATIVE_PATH,
+                                "Pictures/Xue-Mint"
+                            )
+                            put(
+                                android.provider.MediaStore.Images.Media.IS_PENDING,
+                                1
+                            )
+                        }
+                        val uri = resolver.insert(collection, details) ?: run {
+                            call.reject("Could not create the file in your gallery.")
+                            return@execute
+                        }
+                        try {
+                            resolver.openOutputStream(uri)?.sink()?.buffer()?.use { sink ->
+                                body.source().use { source ->
+                                    sink.writeAll(source)
+                                }
+                            } ?: throw java.io.IOException("gallery file is gone")
+                            details.clear()
+                            details.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                            resolver.update(uri, details, null, null)
+                        } catch (error: Exception) {
+                            resolver.delete(uri, null, null)
+                            throw error
+                        }
+                        call.resolve(
+                            JSObject()
+                                .put("filename", filename)
+                                .put("savedTo", "Pictures/Xue-Mint")
+                        )
+                        return@execute
+                    }
+                } catch (error: Exception) {
+                    println("BackupEngine: download attempt on $trimmed failed: ${error.message}")
+                }
+            }
+            call.reject("Your PC was not reachable.")
+        }
+    }
     /**
      * Factory reset: wipes the engine's own data (photo library, digests,
      * queue, progress, rules) and forgets the paired PC, then cancels any

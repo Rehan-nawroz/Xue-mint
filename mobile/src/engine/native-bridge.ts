@@ -87,6 +87,11 @@ interface NativeEnginePlugin {
   openBatterySettings(): Promise<void>;
   requestNotificationPermission(): Promise<{ granted: boolean }>;
   factoryReset(): Promise<void>;
+  downloadAsset(options: {
+    assetId: string;
+    filename: string;
+    mimeType: string;
+  }): Promise<{ filename: string; savedTo: string }>;
   saveEngineSettings(options: {
     settings: EngineSettings;
   }): Promise<{ settings: EngineSettings }>;
@@ -222,4 +227,12 @@ export function nativeRequestNotificationPermission(): Promise<boolean> {
 
 export function nativeFactoryReset(): Promise<void> {
   return native.factoryReset();
+}
+
+export function nativeDownloadAsset(options: {
+  assetId: string;
+  filename: string;
+  mimeType: string;
+}): Promise<{ filename: string; savedTo: string }> {
+  return native.downloadAsset(options);
 }

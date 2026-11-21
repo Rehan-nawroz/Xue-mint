@@ -331,6 +331,10 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
       await delay(Math.min(latencyMs, 50));
     },
 
+    async downloadAsset(_asset: { id: string; filename: string | null }): Promise<void> {
+      await delay(latencyMs * 3);
+    },
+
     async factoryReset(): Promise<void> {
       await delay(Math.min(latencyMs, 50));
       hashes.clear();

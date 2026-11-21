@@ -1,8 +1,9 @@
 import { EmptyState, PhotoGrid } from '@xue-mint/shared';
 import type { GalleryAsset } from '@xue-mint/shared';
+import React from 'react';
 import logoUrl from '../../../assets/brand/mock-logo.svg';
 import { BackupStatusBar } from '../components/BackupStatusBar';
-import type { BackupStatus } from '../engine';
+import type { BackupEngine, BackupStatus, PhonePhotoState } from '../engine';
 import type { TimelineState } from '../hooks/useEngineData';
 
 interface PhotosScreenProps {
@@ -13,6 +14,133 @@ interface PhotosScreenProps {
   onRefreshStatus: () => void;
   onPair: () => void;
   onOpen: (asset: GalleryAsset, index: number) => void;
+  engine: BackupEngine;
+}
+
+/**
+ * Pick waiting photos and send them to the PC right away — the same pass the
+ * "Back up now" button runs, but opened from the photos the user chose.
+ */
+function SendPhotosSheet({
+  engine,
+  onClose,
+}: {
+  engine: BackupEngine;
+  onClose: () => void;
+}) {
+  const [states, setStates] = React.useState<PhonePhotoState[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [sending, setSending] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const loaded = await engine.photoStates(200);
+        if (!alive) return;
+        const waiting = loaded.filter(
+          (item) => item.state === 'new' || item.state === 'hashed' || item.state === 'missing'
+        );
+        setStates(waiting);
+        setSelected(new Set(waiting.map((item) => item.photo.id)));
+      } catch (caught) {
+        if (alive) setError(caught instanceof Error ? caught.message : 'Could not read the queue.');
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [engine]);
+
+  const send = async () => {
+    setSending(true);
+    try {
+      await engine.startBackup();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not start the send.');
+      setSending(false);
+    }
+  };
+
+  return (
+    <div
+      className="absolute inset-0 z-40 flex flex-col justify-end bg-ink/60"
+      role="dialog"
+      aria-label="Send photos now"
+    >
+      <div className="max-h-[70%] overflow-y-auto rounded-t-3xl bg-app p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[15px] font-bold">Photos waiting to back up</h2>
+          <button type="button" className="text-[12px] font-semibold text-muted" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {error ? (
+          <p className="mt-3 rounded-xl bg-danger-soft px-3 py-2 text-[12px] text-danger" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {states === null && !error ? (
+          <p className="mt-4 text-[12px] text-muted">Reading your queue…</p>
+        ) : null}
+        {states !== null && states.length === 0 ? (
+          <p className="mt-4 text-[12px] text-muted">Everything is already on your PC.</p>
+        ) : null}
+        {states !== null && states.length > 0 ? (
+          <>
+            <ul className="mt-3 flex flex-col gap-2">
+              {states.map((item) => {
+                const checked = selected.has(item.photo.id);
+                return (
+                  <li key={item.photo.id}>
+                    <label className="flex items-center gap-3 rounded-xl border border-line px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          const next = new Set(selected);
+                          if (event.target.checked) next.add(item.photo.id);
+                          else next.delete(item.photo.id);
+                          setSelected(next);
+                        }}
+                      />
+                      {item.thumbUrl ? (
+                        <img
+                          className="h-10 w-10 rounded-lg object-cover"
+                          src={item.thumbUrl}
+                          alt=""
+                          width={40}
+                          height={40}
+                        />
+                      ) : null}
+                      <span className="min-w-0 flex-1 truncate text-[12px]">
+                        {item.photo.filename}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              type="button"
+              data-testid="send-now"
+              className="mt-3 w-full rounded-full bg-brand px-3 py-2.5 text-[12px] font-semibold text-white disabled:opacity-50"
+              disabled={sending || selected.size === 0}
+              onClick={() => void send()}
+            >
+              {sending
+                ? 'Sending…'
+                : selected.size === states.length
+                  ? `Send all ${states.length} now`
+                  : `Send ${selected.size} now`}
+            </button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function PhotosScreen({
@@ -23,9 +151,11 @@ export function PhotosScreen({
   onRefreshStatus,
   onPair,
   onOpen,
+  engine,
 }: PhotosScreenProps) {
   const { assets, loading, error, loadingMore, moreError, hasMore, loadMore, retry } = timeline;
   const countLabel = loading ? '' : `${assets.length}${hasMore ? '+' : ''}`;
+  const [sendOpen, setSendOpen] = React.useState(false);
 
   let body;
   if (loading && assets.length === 0) {
@@ -82,13 +212,24 @@ export function PhotosScreen({
               {countLabel ? `${countLabel} photos · on your PC` : 'Your library, on your devices'}
             </p>
           </div>
-          <img
-            className="h-8 w-8 rounded-full shadow-sm"
-            src={logoUrl}
-            alt="Xue-Mint (mock logo)"
-            width={32}
-            height={32}
-          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="send-photos"
+              aria-label="Send photos now"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-[16px] font-semibold leading-none text-white shadow-sm"
+              onClick={() => setSendOpen(true)}
+            >
+              +
+            </button>
+            <img
+              className="h-8 w-8 rounded-full shadow-sm"
+              src={logoUrl}
+              alt="Xue-Mint (mock logo)"
+              width={32}
+              height={32}
+            />
+          </div>
         </div>
       </div>
 
@@ -119,6 +260,8 @@ export function PhotosScreen({
           </button>
         ) : null}
       </div>
+
+      {sendOpen ? <SendPhotosSheet engine={engine} onClose={() => setSendOpen(false)} /> : null}
     </div>
   );
 }
