@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import logoUrl from '../../assets/brand/mock-logo.svg';
 import { Viewer } from '@xue-mint/shared';
 import type { GalleryAsset } from '@xue-mint/shared';
@@ -30,8 +30,30 @@ export function App({ api: providedApi }: AppProps = {}) {
   const [view, setView] = useState<AppView>('photos');
   const [search, setSearch] = useState('');
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
   const timeline = useTimeline(api, search);
   const status = useStatus(api);
+
+  const addPhotos = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAdding(`Adding ${files.length} file(s)…`);
+    try {
+      const result = await api.importFiles(Array.from(files));
+      setAdding(
+        result.imported === 0 && result.duplicates > 0
+          ? 'Already in your library.'
+          : `Added ${result.imported} file(s)${result.duplicates > 0 ? ` · ${result.duplicates} already present` : ''}.`
+      );
+      timeline.retry();
+      status.refresh();
+    } catch {
+      setAdding('Adding failed — try again.');
+    } finally {
+      if (fileInput.current) fileInput.current.value = '';
+      window.setTimeout(() => setAdding(null), 4000);
+    }
+  };
 
   const openViewer = (_asset: GalleryAsset, index: number) => {
     setViewerIndex(index);
@@ -63,6 +85,23 @@ export function App({ api: providedApi }: AppProps = {}) {
           {api.mode === 'mock' ? <span className="badge badge--muted">Sample data</span> : null}
         </div>
 
+        <button
+          type="button"
+          className="add-photos-button"
+          disabled={adding !== null}
+          onClick={() => fileInput.current?.click()}
+        >
+          + Add photos
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          hidden
+          onChange={(event) => void addPhotos(event.target.files)}
+        />
+
         <nav className="nav" aria-label="Main">
           {TABS.map((tab) => (
             <button
@@ -79,6 +118,12 @@ export function App({ api: providedApi }: AppProps = {}) {
 
         <ThemeToggle />
       </header>
+
+      {adding ? (
+        <div className="add-status" role="status">
+          {adding}
+        </div>
+      ) : null}
 
       <main className="app__main">
         {view === 'photos' ? (

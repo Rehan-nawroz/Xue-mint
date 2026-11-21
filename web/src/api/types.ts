@@ -78,6 +78,8 @@ export interface GalleryApi {
   setConnection(allowed: boolean): Promise<ConnectionStatus>;
   /** Wipes the server's library; optionally also the watched-folder files. */
   factoryReset(options?: { deleteFiles?: boolean }): Promise<{ filesRemoved: number }>;
+  /** Adds files picked on this PC to the library; phones see them too. */
+  importFiles(files: File[]): Promise<{ imported: number; duplicates: number }>;
 }
 
 export class GalleryApiError extends Error {

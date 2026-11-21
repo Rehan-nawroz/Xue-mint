@@ -192,6 +192,28 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
       return connectionStatus();
     },
 
+    async importFiles(files: File[]) {
+      await delay(latencyMs * 2);
+      const now = new Date().toISOString();
+      for (const file of files) {
+        assets = [
+          {
+            id: `imported-${now}-${file.name}`,
+            thumbUrl: svgTile(file.name.slice(0, 4), 7),
+            originalUrl: svgTile(file.name, 7, true),
+            type: 'photo',
+            filename: file.name,
+            takenAt: now,
+            addedAt: now,
+            width: null,
+            height: null,
+            size: file.size,
+          },
+          ...assets,
+        ];
+      }
+      return { imported: files.length, duplicates: 0 };
+    },
     async factoryReset(options?: { deleteFiles?: boolean }) {
       await delay(latencyMs);
       // The mock drops its sample library and reports the removed files.

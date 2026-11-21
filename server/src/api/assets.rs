@@ -276,9 +276,9 @@ pub async fn upload(
 }
 
 /// Runs on a blocking thread: hash-verify, move into the photos folder.
-struct FinalizedUpload {
-    duplicate: bool,
-    dest: PathBuf,
+pub(crate) struct FinalizedUpload {
+    pub duplicate: bool,
+    pub dest: PathBuf,
     rel_path: String,
     original_name: Option<String>,
     ext: String,
@@ -287,7 +287,7 @@ struct FinalizedUpload {
     height: Option<i64>,
 }
 
-fn finalize_upload(
+pub(crate) fn finalize_upload(
     photos_dir: &std::path::Path,
     temp_path: &std::path::Path,
     hash: &str,

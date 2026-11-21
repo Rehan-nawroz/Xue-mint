@@ -195,6 +195,21 @@ export function createServerApi(): GalleryApi {
       });
     },
 
+    async importFiles(files: File[]) {
+      let imported = 0;
+      let duplicates = 0;
+      for (const file of files) {
+        const encoded = encodeURIComponent(file.name);
+        const result = await requestJson<{ duplicate: boolean }>('/local/import', {
+          method: 'POST',
+          headers: { 'x-filename': encoded },
+          body: file,
+        });
+        if (result.duplicate) duplicates += 1;
+        else imported += 1;
+      }
+      return { imported, duplicates };
+    },
     factoryReset(options?: { deleteFiles?: boolean }) {
       return requestJson<{ filesRemoved: number }>('/local/factory-reset', {
         method: 'POST',

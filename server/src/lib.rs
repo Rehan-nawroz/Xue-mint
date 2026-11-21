@@ -46,6 +46,7 @@ pub fn build_router(state: AppState) -> Router {
             get(api::local::pairing_info).post(api::local::pairing_code),
         )
         .route("/local/factory-reset", post(api::local::factory_reset))
+        .route("/local/import", post(api::local::import_asset))
         .route(
             "/local/connection",
             get(api::local::get_connection).put(api::local::set_connection),

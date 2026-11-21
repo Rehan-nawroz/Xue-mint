@@ -528,3 +528,104 @@ pub async fn factory_reset(
         "filesRemoved": files_removed,
     })))
 }
+
+/// Response of a successful local import.
+#[derive(Debug, Serialize)]
+pub struct ImportDto {
+    pub id: String,
+    pub filename: String,
+    pub duplicate: bool,
+}
+
+/// POST /local/import — adds a photo or video picked in the gallery to the
+/// library. The file arrives as the raw request body with the original name
+/// in an `x-filename` header; it is stored like any upload and indexed, so
+/// phones see it in their timeline too.
+pub async fn import_asset(
+    State(state): State<AppState>,
+    _local: LocalOnly,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Body,
+) -> Result<Json<ImportDto>, ApiError> {
+    let filename = headers
+        .get("x-filename")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            percent_encoding::percent_decode_str(value).decode_utf8_lossy().into_owned()
+        })
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("x-filename header is required"))?;
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if !crate::media::is_watched_ext(&ext) {
+        return Err(ApiError::bad_request(
+            "Only photo and video files can be added.",
+        ));
+    }
+
+    let mut bytes = body.into_data_stream();
+    let temp_path = state.cfg.tmp_dir().join(format!(
+        "import-{}.{}",
+        uuid::Uuid::new_v4().simple(),
+        ext
+    ));
+    {
+        let mut file = tokio::fs::File::create(&temp_path)
+            .await
+            .map_err(|error| ApiError::internal(error.to_string()))?;
+        while let Some(frame) = http_body_util::BodyExt::frame(&mut bytes).await {
+            let chunk = frame
+                .map_err(ApiError::internal)?
+                .into_data()
+                .map_err(|_| ApiError::bad_request("Unexpected non-data frame in upload body"))?;
+            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+                .await
+                .map_err(|error| ApiError::internal(error.to_string()))?;
+        }
+        tokio::io::AsyncWriteExt::flush(&mut file)
+            .await
+            .map_err(|error| ApiError::internal(error.to_string()))?;
+    }
+
+    let hash = crate::media::hash_file_blocking(&temp_path)
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    let finalized = crate::api::assets::finalize_upload(
+        &state.photos_dir(),
+        &temp_path,
+        &hash.to_lowercase(),
+        Some(filename.clone()),
+    )?;
+
+    // Index the stored file so the row and thumbnail exist like any upload.
+    crate::ingest::ingest_file(&state, &finalized.dest)
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    let hash_lower = hash.to_lowercase();
+    let id: Option<String> = sqlx::query("SELECT id FROM assets WHERE hash = ?")
+        .bind(&hash_lower)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?
+        .and_then(|row| row.try_get(0).ok());
+    let id = id.ok_or_else(|| ApiError::internal("imported file was not indexed"))?;
+    // The ingest names rows after the stored file; keep the friendly name.
+    sqlx::query("UPDATE assets SET filename = ? WHERE id = ?")
+        .bind(&filename)
+        .bind(&id)
+        .execute(&state.pool)
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+
+    println!(
+        "Imported {} ({})",
+        filename,
+        if finalized.duplicate { "duplicate, indexed" } else { "indexed" }
+    );
+    Ok(Json(ImportDto {
+        id,
+        filename,
+        duplicate: finalized.duplicate,
+    }))
+}
