@@ -1,6 +1,6 @@
 /* ============================================================
    Shared gallery theme — the single design-token file.
-   Brand colors come ONLY from /assets/brand (placeholder palette).
+   Brand colors come ONLY from /assets/brand (XueMint palette).
    Light tokens are the default; dark tokens override for an explicit
    dark choice or when the OS asks for dark and no choice is pinned.
    ============================================================ */
@@ -9,9 +9,9 @@
   color-scheme: light;
 
   /* Brand */
-  --brand-primary: #3a6ea5;
-  --brand-primary-dark: #2c5480;
-  --brand-accent: #e8a33d;
+  --brand-primary: #1a73e8;
+  --brand-primary-dark: #174ea6;
+  --brand-accent: #f9ab00;
 
   /* Light surfaces */
   --bg: #fafafa;
@@ -43,8 +43,8 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --brand-primary: #6b9bd1;
-    --brand-primary-dark: #8fb6e0;
+    --brand-primary: #8ab4f8;
+    --brand-primary-dark: #a5c8fb;
     --bg: #1c1b1f;
     --surface: #2b2930;
     --surface-2: #35333b;
@@ -62,8 +62,8 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --brand-primary: #6b9bd1;
-  --brand-primary-dark: #8fb6e0;
+  --brand-primary: #8ab4f8;
+  --brand-primary-dark: #a5c8fb;
   --bg: #1c1b1f;
   --surface: #2b2930;
   --surface-2: #35333b;

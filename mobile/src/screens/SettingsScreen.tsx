@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import React from 'react';
 import { formatDateTime, useTheme } from '@xue-mint/shared';
 import type { ThemeChoice } from '@xue-mint/shared';
-import logoUrl from '../../../assets/brand/mock-logo.svg';
+import logoUrl from '../../../assets/brand/logo.png';
 import type {
   BackupStatus,
   BackupEngine,
@@ -103,31 +103,31 @@ const BATTERY_GUIDANCE: Record<string, { label: string; steps: string[] }> = {
     label: 'Samsung',
     steps: [
       'Open Settings → Battery → Background usage limits.',
-      'Tap "Never sleeping apps" and add Xue-Mint.',
-      'In "Sleeping apps", remove Xue-Mint if it is listed.',
+      'Tap "Never sleeping apps" and add XueMint.',
+      'In "Sleeping apps", remove XueMint if it is listed.',
       'Settings → Battery → More battery settings: turn off "Adaptive battery" if backup still pauses.',
     ],
   },
   xiaomi: {
     label: 'Xiaomi / Redmi / POCO',
     steps: [
-      'Open Settings → Apps → Manage apps → Xue-Mint → Autostart: on.',
+      'Open Settings → Apps → Manage apps → XueMint → Autostart: on.',
       'In the same screen open "Battery saver" and pick "No restrictions".',
-      'Settings → Battery → turn off battery optimization for Xue-Mint.',
+      'Settings → Battery → turn off battery optimization for XueMint.',
     ],
   },
   oppo: {
     label: 'OPPO / Realme / OnePlus',
     steps: [
-      'Open Settings → Battery → More settings → Optimize battery use → Xue-Mint: "Don\'t optimize".',
-      'Settings → Apps → Xue-Mint → Battery usage → "Allow background activity".',
-      'In the recent-apps view, lock Xue-Mint so the system does not close it.',
+      'Open Settings → Battery → More settings → Optimize battery use → XueMint: "Don\'t optimize".',
+      'Settings → Apps → XueMint → Battery usage → "Allow background activity".',
+      'In the recent-apps view, lock XueMint so the system does not close it.',
     ],
   },
   huawei: {
     label: 'Huawei / Honor',
     steps: [
-      'Open Settings → Battery → App launch → Xue-Mint: turn off "Manage automatically".',
+      'Open Settings → Battery → App launch → XueMint: turn off "Manage automatically".',
       'Allow Auto-launch, Secondary launch and Run in background.',
       'Settings → Battery → More battery settings → close "Sleeping mode" if backup still pauses.',
     ],
@@ -135,7 +135,7 @@ const BATTERY_GUIDANCE: Record<string, { label: string; steps: string[] }> = {
   stock: {
     label: 'Pixel and other Android',
     steps: [
-      'Open Settings → Apps → Xue-Mint → Battery → choose "Unrestricted".',
+      'Open Settings → Apps → XueMint → Battery → choose "Unrestricted".',
       'Leave "Adaptive Battery" on; Android rarely stops unrestricted apps.',
     ],
   },
@@ -305,7 +305,7 @@ function FactoryResetSection({ engine }: { engine: BackupEngine }) {
         Factory reset
       </h2>
       <p className="mt-1 px-1 text-[11px] leading-relaxed text-muted">
-        Wipes the whole Xue-Mint system: this app's data, your PC's library
+        Wipes the whole XueMint system: this app's data, your PC's library
         and the photos stored there, plus all pairings. The photos in your
         phone's own gallery are never touched.
       </p>
@@ -587,12 +587,12 @@ export function SettingsScreen({
           <img
             className="h-11 w-11 rounded-xl"
             src={logoUrl}
-            alt="Xue-Mint mock logo"
+            alt="XueMint logo"
             width={44}
             height={44}
           />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold">Xue-Mint</p>
+            <p className="text-[13px] font-semibold">XueMint</p>
             <p className="text-[11px] text-muted">
               Version 0.1.0 · {engine.mode === 'mock' ? 'Browser preview' : 'Android'}
             </p>

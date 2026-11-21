@@ -1,7 +1,7 @@
 import { EmptyState, PhotoGrid, formatBytes } from '@xue-mint/shared';
 import type { GalleryAsset } from '@xue-mint/shared';
 import React from 'react';
-import logoUrl from '../../../assets/brand/mock-logo.svg';
+import logoUrl from '../../../assets/brand/logo.png';
 import { BackupStatusBar } from '../components/BackupStatusBar';
 import type { BackupEngine, BackupStatus, ImportProgress, ImportSummary } from '../engine';
 import type { TimelineState } from '../hooks/useEngineData';
@@ -262,7 +262,7 @@ export function PhotosScreen({
             <img
               className="h-8 w-8 rounded-full shadow-sm"
               src={logoUrl}
-              alt="Xue-Mint (mock logo)"
+              alt="XueMint logo"
               width={32}
               height={32}
             />

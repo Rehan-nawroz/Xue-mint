@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Xue-Mint desktop shell: tray, pairing and setup windows",
+  "description": "XueMint desktop shell: tray, pairing and setup windows",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

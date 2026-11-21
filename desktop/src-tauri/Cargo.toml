@@ -1,7 +1,7 @@
 [package]
 name = "xue-mint-desktop"
 version = "0.1.0"
-description = "Xue-Mint desktop shell and background backup server"
+description = "XueMint desktop shell and background backup server"
 authors = ["Rehan"]
 edition = "2021"
 rust-version = "1.77"

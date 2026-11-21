@@ -478,7 +478,7 @@ fn server_name() -> String {
     std::env::var("COMPUTERNAME")
         .ok()
         .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "Xue-Mint".to_string())
+        .unwrap_or_else(|| "XueMint".to_string())
 }
 
 fn pairing_dto(
@@ -724,7 +724,7 @@ pub async fn import_asset(
     println!(
         "Imported {} ({})",
         filename,
-        if finalized.duplicate {
+        if finalized.preexisting {
             "duplicate, indexed"
         } else {
             "indexed"
@@ -733,6 +733,6 @@ pub async fn import_asset(
     Ok(Json(ImportDto {
         id,
         filename,
-        duplicate: finalized.duplicate,
+        duplicate: finalized.preexisting,
     }))
 }

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import logoUrl from '../../assets/brand/mock-logo.svg';
+import logoUrl from '../../assets/brand/logo.png';
 import { Viewer } from '@xue-mint/shared';
 import type { GalleryAsset } from '@xue-mint/shared';
 import { createApi } from './api';
@@ -81,7 +81,7 @@ export function App({ api: providedApi }: AppProps = {}) {
       <header className="topbar">
         <div className="brand">
           <img className="brand__logo" src={logoUrl} alt="" width={30} height={30} />
-          <span className="brand__name">Xue-Mint</span>
+          <span className="brand__name">XueMint</span>
           {api.mode === 'mock' ? <span className="badge badge--muted">Sample data</span> : null}
         </div>
 

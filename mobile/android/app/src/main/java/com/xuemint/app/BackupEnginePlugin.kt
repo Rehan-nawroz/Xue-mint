@@ -1117,7 +1117,7 @@ class BackupEnginePlugin : Plugin() {
 
     /**
      * Saves a PC asset into the phone's gallery: the original is fetched
-     * over pinned TLS and written through MediaStore into Pictures/Xue-Mint,
+     * over pinned TLS and written through MediaStore into Pictures/XueMint,
      * so it appears in the phone's gallery like any downloaded photo.
      */
     @PluginMethod
@@ -1172,7 +1172,7 @@ class BackupEnginePlugin : Plugin() {
                             put(android.provider.MediaStore.Images.Media.MIME_TYPE, mimeType)
                             put(
                                 android.provider.MediaStore.Images.Media.RELATIVE_PATH,
-                                "Pictures/Xue-Mint"
+                                "Pictures/XueMint"
                             )
                             put(
                                 android.provider.MediaStore.Images.Media.IS_PENDING,
@@ -1199,7 +1199,7 @@ class BackupEnginePlugin : Plugin() {
                         call.resolve(
                             JSObject()
                                 .put("filename", filename)
-                                .put("savedTo", "Pictures/Xue-Mint")
+                                .put("savedTo", "Pictures/XueMint")
                         )
                         return@execute
                     }

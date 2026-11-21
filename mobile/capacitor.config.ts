@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.xuemint.app',
-  appName: 'Xue-Mint',
+  appName: 'XueMint',
   webDir: 'dist',
   android: {
     // Everything user-facing is served from the bundled WebView; the backup

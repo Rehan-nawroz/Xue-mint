@@ -208,7 +208,7 @@ pub fn launch(app: AppHandle, startup: Startup) {
                 }
                 if !announced_startup {
                     println!(
-                        "Xue-Mint server ready on port {} after {:?}",
+                        "XueMint server ready on port {} after {:?}",
                         state.port(),
                         started.elapsed()
                     );

@@ -236,15 +236,6 @@ pub async fn upload(
     .map_err(|error| ApiError::internal(error.to_string()))?;
     let finalize_result = finalize_result?;
 
-    if finalize_result.duplicate {
-        mark_upload_complete(&state.pool, &upload_id).await?;
-        return Ok(Json(UploadResponse {
-            stored: true,
-            duplicate: Some(true),
-            offset: None,
-        }));
-    }
-
     let ext = finalize_result.ext.clone();
     let is_video = media::is_video_ext(&ext);
     let asset_path = state.photos_dir().join(&finalize_result.rel_path);
@@ -297,8 +288,11 @@ pub async fn upload(
     .await?;
 
     if result.rows_affected() == 0 {
-        // A concurrent ingest indexed the same hash first; drop our duplicate file.
-        let _ = std::fs::remove_file(&finalize_result.dest);
+        // A concurrent ingest indexed the same hash first; drop the copy we
+        // just moved in, but never the file that was already stored there.
+        if !finalize_result.preexisting {
+            let _ = std::fs::remove_file(&finalize_result.dest);
+        }
         mark_upload_complete(&state.pool, &upload_id).await?;
         return Ok(Json(UploadResponse {
             stored: true,
@@ -324,7 +318,9 @@ pub async fn upload(
 
 /// Runs on a blocking thread: hash-verify, move into the photos folder.
 pub(crate) struct FinalizedUpload {
-    pub duplicate: bool,
+    /// The destination already held the file before this upload; the caller
+    /// must not delete it when the asset row turns out to exist already.
+    pub preexisting: bool,
     pub dest: PathBuf,
     rel_path: String,
     original_name: Option<String>,
@@ -360,21 +356,15 @@ pub(crate) fn finalize_upload(
     let dest = photos_dir.join(&rel_path);
 
     std::fs::create_dir_all(dest.parent().unwrap())?;
-    if dest.exists() {
+    let preexisting = dest.exists();
+    if preexisting {
         // Same content is already on disk under the same canonical name.
+        // The database row may still be missing (e.g. the item was deleted
+        // with index-only delete), so the caller must index it again.
         std::fs::remove_file(temp_path)?;
-        return Ok(FinalizedUpload {
-            duplicate: true,
-            dest,
-            rel_path,
-            original_name: sanitized_name,
-            ext,
-            size: 0,
-            width: None,
-            height: None,
-        });
+    } else {
+        move_or_copy(temp_path, &dest)?;
     }
-    move_or_copy(temp_path, &dest)?;
 
     let size = std::fs::metadata(&dest)?.len() as i64;
     let (width, height) = if media::is_video_ext(&ext) {
@@ -387,7 +377,7 @@ pub(crate) fn finalize_upload(
     };
 
     Ok(FinalizedUpload {
-        duplicate: false,
+        preexisting,
         dest,
         rel_path,
         original_name: sanitized_name,

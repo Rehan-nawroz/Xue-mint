@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import QRCode from 'qrcode';
-import logoUrl from '../../assets/brand/mock-logo.svg';
+import logoUrl from '../../assets/brand/logo.png';
 import '@xue-mint/shared/theme.css';
 import './style.css';
 
@@ -65,8 +65,8 @@ function demo(name: string): unknown {
         serverReady: true,
         serverError: null,
         port: 8427,
-        photosDir: 'C:\\Users\\You\\Pictures\\Xue-Mint',
-        dataDir: 'C:\\Users\\You\\AppData\\Local\\Xue-Mint',
+        photosDir: 'C:\\Users\\You\\Pictures\\XueMint',
+        dataDir: 'C:\\Users\\You\\AppData\\Local\\XueMint',
         autostart: true,
         firewallRule: false,
         version: '0.1.0 (demo)',
@@ -76,7 +76,7 @@ function demo(name: string): unknown {
     case 'add_firewall_rule':
       return {
         ok: true,
-        message: 'Windows now allows Xue-Mint on private networks.',
+        message: 'Windows now allows XueMint on private networks.',
       } satisfies FirewallResult;
     case 'open_gallery':
     case 'open_pairing':
@@ -137,13 +137,13 @@ function renderPairing(): void {
         <div class="qr-card__frame">
           <canvas id="pairing-qr" width="260" height="260"></canvas>
         </div>
-        <p class="qr-card__caption">Scan with the Xue-Mint app</p>
+        <p class="qr-card__caption">Scan with the XueMint app</p>
         <p class="countdown" id="pairing-countdown" role="status">Preparing a fresh code…</p>
       </section>
       <section class="pair-copy">
         <ol class="steps">
           <li>Connect your phone to the same Wi-Fi as this PC.</li>
-          <li>Open Xue-Mint and scan the code.</li>
+          <li>Open XueMint and scan the code.</li>
           <li>The code works once and expires in 10 minutes.</li>
         </ol>
         <dl class="details">
@@ -267,7 +267,7 @@ function renderSetup(): void {
         <div>
           <h2 id="firewall-heading">Let your phone connect</h2>
           <p class="panel__copy" id="firewall-copy">
-            Windows Firewall must allow Xue-Mint on private networks. This never opens the
+            Windows Firewall must allow XueMint on private networks. This never opens the
             server to the internet.
           </p>
         </div>
@@ -279,7 +279,7 @@ function renderSetup(): void {
           <h2 id="autostart-heading">Start with Windows</h2>
           <p class="panel__copy">
             Keeps backups working after a restart. Turn this off if you prefer to start
-            Xue-Mint yourself.
+            XueMint yourself.
           </p>
         </div>
         <button
@@ -288,7 +288,7 @@ function renderSetup(): void {
           id="autostart-toggle"
           role="switch"
           aria-checked="false"
-          aria-label="Start Xue-Mint with Windows"
+          aria-label="Start XueMint with Windows"
           disabled
         >
           <span class="switch__track"><span class="switch__thumb"></span></span>
@@ -311,8 +311,8 @@ function renderSetup(): void {
           <button type="button" class="btn btn--ghost" id="setup-pair">Pair a phone</button>
         </div>
         <div class="footer-meta">
-          <span id="setup-version">Xue-Mint</span>
-          <button type="button" class="link-button" id="quit">Quit Xue-Mint</button>
+          <span id="setup-version">XueMint</span>
+          <button type="button" class="link-button" id="quit">Quit XueMint</button>
         </div>
       </footer>
     </div>
@@ -341,14 +341,14 @@ function renderSetup(): void {
     firewallButton.disabled = next.firewallRule;
     firewallButton.textContent = next.firewallRule ? 'Allowed' : 'Allow connections';
     firewallCopy.textContent = next.firewallRule
-      ? 'Windows allows Xue-Mint on private networks. Paired phones on this Wi-Fi can reach it.'
-      : 'Windows Firewall must allow Xue-Mint on private networks. Windows will ask for permission once; this never opens the server to the internet.';
+      ? 'Windows allows XueMint on private networks. Paired phones on this Wi-Fi can reach it.'
+      : 'Windows Firewall must allow XueMint on private networks. Windows will ask for permission once; this never opens the server to the internet.';
 
     autostart.disabled = false;
     autostart.setAttribute('aria-checked', String(next.autostart));
 
     library.textContent = next.photosDir;
-    version.textContent = `Xue-Mint ${next.version}`;
+    version.textContent = `XueMint ${next.version}`;
   };
 
   const refresh = async (): Promise<void> => {
@@ -385,8 +385,8 @@ function renderSetup(): void {
       await command('set_autostart', { enabled });
       paint({ ...status, autostart: enabled });
       message.textContent = enabled
-        ? 'Xue-Mint will start with Windows.'
-        : 'Xue-Mint will no longer start with Windows.';
+        ? 'XueMint will start with Windows.'
+        : 'XueMint will no longer start with Windows.';
     } catch (error) {
       message.textContent = error instanceof Error ? error.message : String(error);
     } finally {

@@ -1683,6 +1683,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "heifer"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42a5b50fde4e3cbde838ba1f5b450034658033cb6e9a94466edf9278a30a380d"
+dependencies = [
+ "heifer-hevc-dec",
+ "heifer-isobmff",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "heifer-hevc-dec"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39e44e38f72a6e1ebfdbefb766f6c781dc7364a3181c50c00f89e8991e25844f"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "heifer-isobmff"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdec6b5afdb5b6dbfbcceea2855c38abe818a704d61a134861895d75a04f5d9a"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6213,6 +6242,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "chrono",
+ "heifer",
  "http-body-util",
  "if-addrs",
  "image",
@@ -6230,6 +6260,7 @@ dependencies = [
  "tokio-util",
  "tower-http",
  "uuid",
+ "zune-heic",
 ]
 
 [[package]]
@@ -6361,6 +6392,25 @@ name = "zune-core"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d56377fd46368984a170bc5aac5567e52ca5da874caa60bea39fcbca78fb658b"
+
+[[package]]
+name = "zune-heic"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "506a37d813547dfb1f4528f5d6ce1e266a421957d2d408fdc6b9d642f01a0d0f"
+dependencies = [
+ "zune-core",
+ "zune-isobmff",
+]
+
+[[package]]
+name = "zune-isobmff"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e66e17f976deba786f15863bc7431554bf6239f2166d43123df0e063a2500f2"
+dependencies = [
+ "zune-core",
+]
 
 [[package]]
 name = "zune-jpeg"

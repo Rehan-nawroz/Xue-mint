@@ -1,4 +1,4 @@
-//! Xue-Mint desktop shell. Hosts the local server in the background, keeps the
+//! XueMint desktop shell. Hosts the local server in the background, keeps the
 //! tray alive when windows close, and provides pairing/setup windows.
 
 mod commands;
@@ -35,7 +35,7 @@ pub fn open_gallery_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .expect("local gallery URL is valid");
 
     let builder = WebviewWindowBuilder::new(app, "gallery", WebviewUrl::External(url))
-        .title("Xue-Mint")
+        .title("XueMint")
         .inner_size(1280.0, 840.0)
         .min_inner_size(900.0, 600.0)
         .center();
@@ -58,7 +58,7 @@ pub fn open_pairing_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         return Ok(existing);
     }
     let builder = WebviewWindowBuilder::new(app, "pairing", WebviewUrl::App("index.html".into()))
-        .title("Pair a phone — Xue-Mint")
+        .title("Pair a phone — XueMint")
         .inner_size(880.0, 640.0)
         .min_inner_size(520.0, 560.0)
         .center();
@@ -74,7 +74,7 @@ pub fn open_setup_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         return Ok(window);
     }
     let builder = WebviewWindowBuilder::new(app, "setup", WebviewUrl::App("index.html".into()))
-        .title("Xue-Mint setup")
+        .title("XueMint setup")
         .inner_size(740.0, 760.0)
         .min_inner_size(520.0, 560.0)
         .center();
@@ -88,12 +88,12 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let pair = MenuItem::with_id(app, "pair", "Pair a phone", true, None::<&str>)?;
     let setup = MenuItem::with_id(app, "setup", "Allow phone connections…", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Xue-Mint", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit XueMint", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &pair, &setup, &separator, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id("main")
         .menu(&menu)
-        .tooltip("Xue-Mint — your photos stay on this PC")
+        .tooltip("XueMint — your photos stay on this PC")
         .show_menu_on_left_click(false);
 
     if let Some(icon) = app.default_window_icon() {
@@ -183,7 +183,7 @@ pub fn run() {
                     host::launch(handle, startup);
                 }
                 Err(error) => {
-                    eprintln!("Xue-Mint startup failed: {error:#}");
+                    eprintln!("XueMint startup failed: {error:#}");
                     let (photos_dir, data_dir) = fallback_paths();
                     app.manage(DesktopState::fallback(
                         format!("{error:#}"),
@@ -207,7 +207,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building Xue-Mint")
+        .expect("error while building XueMint")
         .run(|app, event| match event {
             // Closing the last window must not stop the backup server.
             RunEvent::ExitRequested { api, code, .. } => {

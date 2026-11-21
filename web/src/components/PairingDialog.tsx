@@ -95,7 +95,7 @@ export function PairingDialog({ api, onClose }: PairingDialogProps) {
         <header className="pairing-dialog__header">
           <div>
             <h2 id="pairing-dialog-title">Pair a phone</h2>
-            <p>Scan this code with Xue-Mint on your phone.</p>
+            <p>Scan this code with XueMint on your phone.</p>
           </div>
           <button
             ref={closeButton}
@@ -141,7 +141,7 @@ export function PairingDialog({ api, onClose }: PairingDialogProps) {
             <div className="pairing-dialog__copy">
               <ol className="pairing-steps">
                 <li>Connect your phone to the same Wi-Fi as this PC.</li>
-                <li>Open Xue-Mint and scan the code.</li>
+                <li>Open XueMint and scan the code.</li>
                 <li>The code works once and expires after 10 minutes.</li>
               </ol>
 

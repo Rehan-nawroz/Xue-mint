@@ -169,7 +169,7 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(setConnection).toHaveBeenCalledWith(true));
     expect(await screen.findByText('Phones on this Wi-Fi can connect')).toBeInTheDocument();
     expect(
-      screen.getByText('Phones on this Wi-Fi can now reach Xue-Mint.')
+      screen.getByText('Phones on this Wi-Fi can now reach XueMint.')
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Block phone connections' }));

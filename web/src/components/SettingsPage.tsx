@@ -82,7 +82,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
       setConnection(next);
       setConnectionMessage(
         next.allowed
-          ? 'Phones on this Wi-Fi can now reach Xue-Mint.'
+          ? 'Phones on this Wi-Fi can now reach XueMint.'
           : 'New phone connections are blocked.'
       );
     } catch (caught) {
@@ -286,7 +286,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
         <div className="connection-panel__copy">
           <h3 id="phone-connections-title">Phone connections</h3>
           <p>
-            Let phones on this Wi-Fi reach Xue-Mint. Windows Firewall controls access on
+            Let phones on this Wi-Fi reach XueMint. Windows Firewall controls access on
             private networks; the internet stays blocked.
           </p>
           <p className="connection-panel__state" role="status">
@@ -342,7 +342,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
         <div>
           <h3 id="pair-phone-title">Pair a phone</h3>
           <p>
-            Show a one-time QR code for the Xue-Mint app. Allow phone connections above
+            Show a one-time QR code for the XueMint app. Allow phone connections above
             first, then scan with your phone over this Wi-Fi.
           </p>
         </div>

@@ -84,11 +84,11 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
   });
   let settings: ServerSettings = {
     deleteBehavior: 'index_only',
-    photosFolder: 'C:\\Users\\You\\Pictures\\Xue-Mint',
+    photosFolder: 'C:\\Users\\You\\Pictures\\XueMint',
     mirrorFolder: '',
     mirrorAvailable: true,
     port: 8427,
-    activePhotosFolder: 'C:\\Users\\You\\Pictures\\Xue-Mint',
+    activePhotosFolder: 'C:\\Users\\You\\Pictures\\XueMint',
     activePort: 8427,
     restartRequired: false,
   };

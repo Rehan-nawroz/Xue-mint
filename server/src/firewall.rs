@@ -3,7 +3,7 @@
 
 use serde::Serialize;
 
-pub const RULE_NAME: &str = "Xue-Mint";
+pub const RULE_NAME: &str = "XueMint";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,7 +33,7 @@ pub fn rule_exists() -> bool {
             output.status.success()
                 && String::from_utf8_lossy(&output.stdout)
                     .to_lowercase()
-                    .contains("xue-mint")
+                    .contains("xuemint")
         }
         Err(_) => false,
     }
@@ -53,7 +53,7 @@ pub fn add_rule() -> FirewallResult {
     if rule_exists() {
         return FirewallResult {
             ok: true,
-            message: "Windows already allows Xue-Mint on private networks.".to_string(),
+            message: "Windows already allows XueMint on private networks.".to_string(),
         };
     }
 
@@ -62,7 +62,7 @@ pub fn add_rule() -> FirewallResult {
         Err(error) => {
             return FirewallResult {
                 ok: false,
-                message: format!("Could not find the Xue-Mint executable: {error}"),
+                message: format!("Could not find the XueMint executable: {error}"),
             };
         }
     };
@@ -82,14 +82,14 @@ pub fn add_rule() -> FirewallResult {
             ok: false,
             message:
                 "Windows did not add the rule. Approve the permission prompt, or add an inbound \
-                 rule for Xue-Mint in Windows Security."
+                 rule for XueMint in Windows Security."
                     .to_string(),
         };
     }
 
     FirewallResult {
         ok: true,
-        message: "Windows now allows Xue-Mint on private networks.".to_string(),
+        message: "Windows now allows XueMint on private networks.".to_string(),
     }
 }
 
@@ -117,14 +117,14 @@ pub fn remove_rule() -> FirewallResult {
             ok: false,
             message:
                 "Windows did not remove the rule. Approve the permission prompt, or remove the \
-                 Xue-Mint inbound rule in Windows Security."
+                 XueMint inbound rule in Windows Security."
                     .to_string(),
         };
     }
 
     FirewallResult {
         ok: true,
-        message: "Windows now blocks phone connections to Xue-Mint.".to_string(),
+        message: "Windows now blocks phone connections to XueMint.".to_string(),
     }
 }
 

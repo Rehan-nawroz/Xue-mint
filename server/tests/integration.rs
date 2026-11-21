@@ -1705,3 +1705,113 @@ async fn new_pairing_code_supersedes_older_unused_code() {
         .unwrap();
     assert_eq!(accepted.status().as_u16(), 200);
 }
+
+#[tokio::test]
+async fn reuploading_a_deleted_from_index_photo_reindexes_it() {
+    let (base, pool, _state) = start_server_state().await;
+    let http = client();
+    let cookie = session_cookie(
+        &http
+            .post(format!("{base}/local/session"))
+            .send()
+            .await
+            .unwrap(),
+    );
+
+    let token = tokens::create_token(&pool, 600).await.unwrap();
+    let paired: Value = http
+        .post(format!("{base}/pair"))
+        .json(&json!({
+            "token": token,
+            "devicePublicKey": BASE64.encode(b"reindex-device-key"),
+            "deviceName": "Reindex Phone"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let credential = paired["credential"].as_str().unwrap().to_string();
+
+    // First upload lands normally.
+    let bytes = test_jpeg();
+    let hash = xue_mint_server::media::hash_bytes(&bytes);
+    let response = http
+        .put(format!("{base}/assets/upload/{hash}?final=1"))
+        .header("Authorization", auth(&credential))
+        .header("x-total", bytes.len().to_string())
+        .header("x-filename", "come-back.jpg")
+        .body(bytes.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(response.json::<Value>().await.unwrap()["duplicate"], false);
+
+    // index-only delete: the library row goes away, the file stays on disk.
+    let saved = put_settings(
+        &http,
+        &base,
+        &cookie,
+        json!({ "deleteBehavior": "index_only" }),
+    )
+    .await;
+    assert_eq!(saved.status().as_u16(), 200);
+    let asset_id: String = sqlx::query("SELECT id FROM assets WHERE hash = ?")
+        .bind(&hash)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get("id");
+    let response = http
+        .delete(format!("{base}/assets/{asset_id}"))
+        .header("Cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 204);
+
+    // The device now sees the hash as missing and uploads it again.
+    let response = http
+        .post(format!("{base}/assets/check"))
+        .header("Authorization", auth(&credential))
+        .json(&json!({ "hashes": [hash] }))
+        .send()
+        .await
+        .unwrap();
+    let check: Value = response.json().await.unwrap();
+    assert_eq!(check["missing"].as_array().unwrap().len(), 1);
+
+    let response = http
+        .put(format!("{base}/assets/upload/{hash}?final=1"))
+        .header("Authorization", auth(&credential))
+        .header("x-total", bytes.len().to_string())
+        .header("x-filename", "come-back.jpg")
+        .body(bytes.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let uploaded: Value = response.json().await.unwrap();
+    assert_eq!(uploaded["stored"], true);
+
+    // The re-upload must have restored the library row, not just the file.
+    let rows = sqlx::query("SELECT id, filename FROM assets WHERE hash = ?")
+        .bind(&hash)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1, "re-upload must re-index the stored file");
+    assert_eq!(rows[0].get::<String, _>("filename"), "come-back.jpg");
+
+    let response = http
+        .post(format!("{base}/assets/check"))
+        .header("Authorization", auth(&credential))
+        .json(&json!({ "hashes": [hash] }))
+        .send()
+        .await
+        .unwrap();
+    let check: Value = response.json().await.unwrap();
+    assert_eq!(check["missing"].as_array().unwrap().len(), 0);
+}

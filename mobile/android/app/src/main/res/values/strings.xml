@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Xue-Mint</string>
-    <string name="title_activity_main">Xue-Mint</string>
+    <string name="app_name">XueMint</string>
+    <string name="title_activity_main">XueMint</string>
     <string name="package_name">com.xuemint.app</string>
     <string name="custom_url_scheme">com.xuemint.app</string>
 </resources>

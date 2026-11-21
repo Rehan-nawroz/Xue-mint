@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Xue-Mint Android app: phone backup and PC library over the local network",
+  "description": "XueMint Android app: phone backup and PC library over the local network",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

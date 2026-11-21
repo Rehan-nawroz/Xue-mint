@@ -1,4 +1,4 @@
-# CI for Xue-Mint
+# CI for XueMint
 # Rule: do not commit or push without the user's explicit permission.
 
 name: CI

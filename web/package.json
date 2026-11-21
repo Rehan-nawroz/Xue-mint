@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Xue-Mint web gallery served by the local server",
+  "description": "XueMint web gallery served by the local server",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
