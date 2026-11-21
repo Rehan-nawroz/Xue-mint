@@ -30,24 +30,35 @@ pub async fn pair(
     Json(request): Json<PairRequest>,
 ) -> Result<Json<PairResponse>, ApiError> {
     let token = request.token.trim().to_uppercase();
-
-    let row = sqlx::query("SELECT expires_at, used FROM pairing_tokens WHERE token = ?")
-        .bind(&token)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(ApiError::pair_token_invalid)?;
-
-    if row.get::<i64, _>("used") != 0 {
-        return Err(ApiError::pair_token_used());
+    if token.is_empty() || token.len() > 64 {
+        return Err(ApiError::pair_token_invalid());
     }
-    if now_iso() > row.get::<String, _>("expires_at") {
-        return Err(ApiError::pair_token_expired());
+    if request.device_public_key.len() > 4096 {
+        return Err(ApiError::bad_request("devicePublicKey is too large"));
     }
+    let device_name = clean_device_name(&request.device_name);
 
-    sqlx::query("UPDATE pairing_tokens SET used = 1 WHERE token = ?")
-        .bind(&token)
-        .execute(&state.pool)
-        .await?;
+    // Claim the token in one conditional statement: two phones scanning the
+    // same QR at the same moment must not both receive a credential.
+    let now = now_iso();
+    let claimed = sqlx::query(
+        "UPDATE pairing_tokens SET used = 1 WHERE token = ? AND used = 0 AND expires_at >= ?",
+    )
+    .bind(&token)
+    .bind(&now)
+    .execute(&state.pool)
+    .await?;
+    if claimed.rows_affected() == 0 {
+        let row = sqlx::query("SELECT used, expires_at FROM pairing_tokens WHERE token = ?")
+            .bind(&token)
+            .fetch_optional(&state.pool)
+            .await?;
+        return match row {
+            None => Err(ApiError::pair_token_invalid()),
+            Some(row) if row.get::<i64, _>("used") != 0 => Err(ApiError::pair_token_used()),
+            Some(_) => Err(ApiError::pair_token_expired()),
+        };
+    }
 
     let public_key = decode_public_key(&request.device_public_key)
         .ok_or_else(|| ApiError::bad_request("devicePublicKey must be valid base64"))?;
@@ -73,14 +84,14 @@ pub async fn pair(
             "UPDATE devices SET name = ?, credential_hash = ?, paired_at = ?, last_seen_at = ?, revoked = 0 \
              WHERE id = ?",
         )
-        .bind(request.device_name.trim())
+        .bind(&device_name)
         .bind(&credential_hash)
         .bind(now_iso())
         .bind(now_iso())
         .bind(&id)
         .execute(&state.pool)
         .await?;
-        println!("Re-paired device \"{}\" ({id})", request.device_name.trim());
+        println!("Re-paired device \"{device_name}\" ({id})");
         id
     } else {
         let id = uuid::Uuid::new_v4().to_string();
@@ -89,20 +100,35 @@ pub async fn pair(
              VALUES (?, ?, ?, ?, ?, ?, 0)",
         )
         .bind(&id)
-        .bind(request.device_name.trim())
+        .bind(&device_name)
         .bind(&public_key)
         .bind(&credential_hash)
         .bind(now_iso())
         .bind(now_iso())
         .execute(&state.pool)
         .await?;
-        println!("Paired device \"{}\" ({id})", request.device_name.trim());
+        println!("Paired device \"{device_name}\" ({id})");
         id
     };
     Ok(Json(PairResponse {
         device_id,
         credential,
     }))
+}
+
+/// Device names are display labels: strip control characters and keep them short.
+fn clean_device_name(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(100)
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        "Phone".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Accepts standard or URL-safe base64 for the device public key.

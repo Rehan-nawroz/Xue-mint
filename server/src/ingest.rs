@@ -2,8 +2,10 @@
 //! database row plus a thumbnail. Used by both the upload finalization and the
 //! folder watcher, so both paths behave identically.
 
-use crate::media::{self, exif, thumbs};
+use crate::media::{self, exif, intake, live, thumbs};
+use crate::mirror;
 use crate::state::AppState;
+use sqlx::Row;
 use std::path::{Path, PathBuf};
 
 /// Indexes a file: hashes it, records metadata, generates a thumbnail.
@@ -13,14 +15,28 @@ pub async fn ingest_file(state: &AppState, path: &Path) -> anyhow::Result<()> {
         return Ok(());
     };
 
-    // Same path already indexed? Then there is nothing new to do.
+    let ext = media::ext_of(path);
+    let asset_type = media::classify(&ext);
+    let is_video = asset_type == "video";
+
+    // A Live Photo's video is not a timeline item of its own. Its still image
+    // either already exists (linked below) or will arrive right after.
+    if is_video && live::photo_companion_for_video(path).is_some() {
+        return Ok(());
+    }
+
+    // Same path already indexed? Then there is nothing new to do, though a
+    // newly arrived still may still need to link its already-indexed video.
     let path_text = path.to_string_lossy();
-    let path_taken = sqlx::query("SELECT 1 FROM assets WHERE path = ?")
+    let existing_id: Option<String> = sqlx::query("SELECT id FROM assets WHERE path = ?")
         .bind(path_text.as_ref())
         .fetch_optional(&state.pool)
         .await?
-        .is_some();
-    if path_taken {
+        .map(|row| row.get("id"));
+    if let Some(id) = existing_id {
+        if !is_video {
+            link_video_companion(state, &id, path).await;
+        }
         return Ok(());
     }
 
@@ -37,27 +53,29 @@ pub async fn ingest_file(state: &AppState, path: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let ext = media::ext_of(path);
-    let asset_type = media::classify(&ext);
-    let is_video = asset_type == "video";
     let size = std::fs::metadata(path)?.len() as i64;
 
     let meta = if is_video { None } else { exif::read(path) };
-    let taken_at = meta.as_ref().and_then(|m| m.taken_at.clone());
-    let gps = meta.as_ref().and_then(|m| m.gps.clone());
-    let orientation = meta.as_ref().map(|m| m.orientation).unwrap_or(1);
+    let taken_at = meta
+        .as_ref()
+        .and_then(|metadata| metadata.taken_at.clone())
+        .or_else(|| media::file_date(path));
+    let gps = meta.as_ref().and_then(|metadata| metadata.gps.clone());
+    let orientation = meta
+        .as_ref()
+        .map(|metadata| metadata.orientation)
+        .unwrap_or(1);
 
-    let (width, height) = if is_video {
-        (None, None)
-    } else {
-        match image::ImageReader::open(path)
-            .ok()
-            .and_then(|r| r.into_dimensions().ok())
-        {
-            Some((w, h)) if (5..=8).contains(&orientation) => (Some(h as i64), Some(w as i64)),
-            Some((w, h)) => (Some(w as i64), Some(h as i64)),
-            None => (None, None),
+    let (width, height) = match intake::dimensions(path) {
+        Some((width, height)) => {
+            // HEIF rotation properties are already applied by the decoder.
+            if (5..=8).contains(&orientation) && !media::is_heic_ext(&ext) {
+                (Some(height as i64), Some(width as i64))
+            } else {
+                (Some(width as i64), Some(height as i64))
+            }
         }
+        None => (None, None),
     };
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -85,9 +103,42 @@ pub async fn ingest_file(state: &AppState, path: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if !is_video {
+        link_video_companion(state, &id, path).await;
+    }
+
     thumbs::generate(state, path, &hash, is_video, orientation).await;
+    mirror::copy_stored(state, path, path_text.as_ref()).await;
     println!("Indexed {file_name} ({hash})");
     Ok(())
+}
+
+/// Links an already-indexed companion video to the still that just arrived, so
+/// the pair shows up once, dated by the still.
+async fn link_video_companion(state: &AppState, photo_id: &str, photo_path: &Path) {
+    let Some(video_path) = live::video_companion_for_photo(photo_path) else {
+        return;
+    };
+    let video_text = video_path.to_string_lossy().into_owned();
+    // Windows file names are case-insensitive: the discovered companion may be
+    // spelled `IMG_0001.mov` while the indexed file is `IMG_0001.MOV`.
+    let video =
+        sqlx::query("SELECT id, path FROM assets WHERE path = ? COLLATE NOCASE AND type = 'video'")
+            .bind(&video_text)
+            .fetch_optional(&state.pool)
+            .await;
+    let Ok(Some(row)) = video else { return };
+    let video_id: String = row.get("id");
+    let stored_video_path: String = row.get("path");
+    let _ = sqlx::query("UPDATE assets SET hidden = 1 WHERE id = ?")
+        .bind(&video_id)
+        .execute(&state.pool)
+        .await;
+    let _ = sqlx::query("UPDATE assets SET live_video_path = ? WHERE id = ?")
+        .bind(&stored_video_path)
+        .bind(photo_id)
+        .execute(&state.pool)
+        .await;
 }
 
 /// Walks the photos folder recursively and indexes anything not yet in the

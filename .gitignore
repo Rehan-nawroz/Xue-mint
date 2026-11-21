@@ -45,6 +45,8 @@ tmp/
 *.log
 mobile/playwright-report/
 mobile/test-results/
+web/playwright-report/
+web/test-results/
 /docs
 web/README.md
 desktop/README.md

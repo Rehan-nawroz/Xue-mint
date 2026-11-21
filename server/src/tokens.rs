@@ -14,6 +14,11 @@ pub async fn create_token(pool: &SqlitePool, ttl_secs: i64) -> anyhow::Result<St
     let expires = (now + chrono::Duration::seconds(ttl_secs))
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let created = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    // Used and expired codes are inert; remove them so the table stays tiny.
+    sqlx::query("DELETE FROM pairing_tokens WHERE used = 1 OR expires_at < ?")
+        .bind(&created)
+        .execute(pool)
+        .await?;
     sqlx::query(
         "INSERT INTO pairing_tokens (token, created_at, expires_at, used) VALUES (?, ?, ?, 0)",
     )

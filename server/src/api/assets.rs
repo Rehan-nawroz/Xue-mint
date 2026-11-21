@@ -4,7 +4,8 @@
 use crate::auth::Device;
 use crate::db::get_setting;
 use crate::errors::ApiError;
-use crate::media::{self, thumbs};
+use crate::media::{self, clean_display_name, thumbs};
+use crate::mirror;
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -40,6 +41,12 @@ pub async fn check(
     _device: Device,
     Json(request): Json<CheckRequest>,
 ) -> Result<Json<CheckResponse>, ApiError> {
+    if request.hashes.len() > 5000 {
+        return Err(ApiError::bad_request(
+            "Send at most 5000 hashes per request.",
+        ));
+    }
+
     let mut requested = std::collections::HashSet::new();
     for hash in &request.hashes {
         requested.insert(hash.to_lowercase());
@@ -107,13 +114,17 @@ pub async fn upload(
         return Err(ApiError::bad_request("Offset must not be negative"));
     }
     let total: i64 = header_i64(&headers, "x-total").unwrap_or(0);
+    if total > 0 && offset > total {
+        return Err(ApiError::bad_request(
+            "The resume offset is past the end of the upload.",
+        ));
+    }
     let filename: Option<String> = headers
         .get("x-filename")
         .and_then(|value| value.to_str().ok())
         .map(|value| {
-            percent_encoding::percent_decode_str(value)
-                .decode_utf8_lossy()
-                .into_owned()
+            let decoded = percent_encoding::percent_decode_str(value).decode_utf8_lossy();
+            clean_display_name(&decoded)
         });
 
     // Content already stored? Drain the body (the client may still be sending)
@@ -234,19 +245,52 @@ pub async fn upload(
         }));
     }
 
-    let is_video = media::is_video_ext(&finalize_result.ext);
+    let ext = finalize_result.ext.clone();
+    let is_video = media::is_video_ext(&ext);
+    let asset_path = state.photos_dir().join(&finalize_result.rel_path);
+    // Uploaded photos carry their own EXIF just like files dropped into the
+    // folder; reading it here gives the timeline a real capture date.
+    let meta = if is_video {
+        None
+    } else {
+        crate::media::exif::read(&asset_path)
+    };
+    let taken_at = meta
+        .as_ref()
+        .and_then(|metadata| metadata.taken_at.clone())
+        .or_else(|| media::file_date(&asset_path));
+    let gps = meta.as_ref().and_then(|metadata| metadata.gps.clone());
+    let orientation = meta
+        .as_ref()
+        .map(|metadata| metadata.orientation)
+        .unwrap_or(1);
+    let (width, height) = if is_video {
+        (None, None)
+    } else {
+        match (finalize_result.width, finalize_result.height) {
+            (Some(width), Some(height))
+                if (5..=8).contains(&orientation) && !media::is_heic_ext(&ext) =>
+            {
+                (Some(height), Some(width))
+            }
+            other => other,
+        }
+    };
+    let asset_id = uuid::Uuid::new_v4().to_string();
     let added_at = media::now_iso();
     let result = sqlx::query(
         "INSERT OR IGNORE INTO assets (id, hash, filename, type, size, taken_at, gps, width, height, path, added_at) \
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&asset_id)
     .bind(&hash)
     .bind(&finalize_result.original_name)
-    .bind(media::classify(&finalize_result.ext))
+    .bind(media::classify(&ext))
     .bind(finalize_result.size)
-    .bind(finalize_result.width)
-    .bind(finalize_result.height)
+    .bind(&taken_at)
+    .bind(&gps)
+    .bind(width)
+    .bind(height)
     .bind(&finalize_result.rel_path)
     .bind(&added_at)
     .execute(&state.pool)
@@ -263,8 +307,11 @@ pub async fn upload(
         }));
     }
 
-    let asset_path = state.photos_dir().join(&finalize_result.rel_path);
-    thumbs::generate(&state, &asset_path, &hash, is_video, 1).await;
+    thumbs::generate(&state, &asset_path, &hash, is_video, orientation).await;
+    if let Some(name) = finalize_result.original_name.as_deref() {
+        link_uploaded_companions(&state, &asset_id, name, &finalize_result.rel_path).await;
+    }
+    mirror::copy_stored(&state, &asset_path, &finalize_result.rel_path).await;
 
     mark_upload_complete(&state.pool, &upload_id).await?;
     println!("Stored {hash} ({} bytes)", finalize_result.size);
@@ -307,7 +354,7 @@ pub(crate) fn finalize_upload(
     let ext = filename
         .as_deref()
         .and_then(|name| std::path::Path::new(name).extension())
-        .map(|e| e.to_string_lossy().to_lowercase())
+        .map(|extension| media::sanitize_ext(&extension.to_string_lossy()))
         .unwrap_or_else(|| "bin".to_string());
     let rel_path = format!("{}/{hash}.{ext}", &hash[..2]);
     let dest = photos_dir.join(&rel_path);
@@ -333,11 +380,8 @@ pub(crate) fn finalize_upload(
     let (width, height) = if media::is_video_ext(&ext) {
         (None, None)
     } else {
-        match image::ImageReader::open(&dest)
-            .ok()
-            .and_then(|r| r.into_dimensions().ok())
-        {
-            Some((w, h)) => (Some(w as i64), Some(h as i64)),
+        match media::intake::dimensions(&dest) {
+            Some((width, height)) => (Some(width as i64), Some(height as i64)),
             None => (None, None),
         }
     };
@@ -455,10 +499,18 @@ pub async fn timeline(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| cursor.as_ref().and_then(|decoded| decoded.q.clone()));
+    if let Some(term) = &term {
+        if term.chars().count() > 200 {
+            return Err(ApiError::bad_request(
+                "Search text must be 200 characters or fewer.",
+            ));
+        }
+    }
     let select =
         "SELECT id, hash, filename, type, size, taken_at, gps, width, height, added_at FROM assets";
 
-    let mut clauses = Vec::new();
+    // Companion videos of Live Photos stay out of the timeline.
+    let mut clauses = vec!["hidden = 0"];
     if term.is_some() {
         clauses.push("filename LIKE ? ESCAPE '\\'");
     }
@@ -531,6 +583,9 @@ pub async fn timeline(
 
 fn decode_cursor(raw: Option<&str>) -> Result<Option<Cursor>, ApiError> {
     let Some(raw) = raw else { return Ok(None) };
+    if raw.len() > 8192 {
+        return Err(ApiError::bad_request("Invalid cursor"));
+    }
     let bytes = URL_SAFE_NO_PAD
         .decode(raw.trim())
         .map_err(|_| ApiError::bad_request("Invalid cursor"))?;
@@ -552,6 +607,9 @@ pub async fn thumb(
         .await?
         .ok_or_else(|| ApiError::not_found("ASSET_NOT_FOUND", "No such asset."))?;
     let hash: String = asset.get("hash");
+    if !media::is_valid_hash(&hash) {
+        return Err(ApiError::not_found("ASSET_NOT_FOUND", "No such asset."));
+    }
     let path = state.cfg.thumbs_dir().join(format!("{hash}.jpg"));
     if !path.exists() {
         return Err(ApiError::not_found(
@@ -574,6 +632,12 @@ pub async fn original(
     let rel_path: String = asset.get("path");
     let ext = media::ext_of(std::path::Path::new(&rel_path));
     let path = state.photos_dir().join(&rel_path);
+    if !path.is_file() {
+        return Err(ApiError::not_found(
+            "ASSET_FILE_MISSING",
+            "The file is no longer in the photos folder.",
+        ));
+    }
     let file = tokio::fs::File::open(&path).await?;
     let stream = tokio_util::io::ReaderStream::new(file);
     Ok((
@@ -750,6 +814,7 @@ pub async fn rename_asset(
         return Err(error.into());
     }
 
+    mirror::rename_stored(&state, &rel_path, &new_rel_text).await;
     Ok(Json(RenameResponse { filename: new_name }))
 }
 
@@ -774,6 +839,7 @@ pub async fn delete_asset(
     if behavior == "delete_file" {
         let _ = std::fs::remove_file(state.photos_dir().join(&rel_path));
         let _ = std::fs::remove_file(state.cfg.thumbs_dir().join(format!("{hash}.jpg")));
+        mirror::remove_stored(&state, &rel_path).await;
     }
 
     sqlx::query("DELETE FROM assets WHERE id = ?")
@@ -781,6 +847,82 @@ pub async fn delete_asset(
         .execute(&state.pool)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Hides a companion video and links it to its still (or the reverse) after an
+/// upload or import, matching the file stem of the friendly names.
+pub(crate) async fn link_uploaded_companions(
+    state: &AppState,
+    asset_id: &str,
+    filename: &str,
+    stored_path: &str,
+) {
+    let Some(stem) = std::path::Path::new(filename)
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return;
+    };
+    let ext = media::ext_of(std::path::Path::new(filename));
+    let is_video = media::is_video_ext(&ext);
+    let (companion_type, companion_exts): (&str, &[&str]) = if is_video {
+        (
+            "photo",
+            &["heic", "heif", "hif", "jpg", "jpeg", "png", "tif", "tiff"],
+        )
+    } else {
+        ("video", media::VIDEO_EXTS.as_slice())
+    };
+    let names: Vec<String> = companion_exts
+        .iter()
+        .flat_map(|extension| {
+            [
+                format!("{stem}.{extension}"),
+                format!("{stem}.{}", extension.to_ascii_uppercase()),
+            ]
+        })
+        .collect();
+    let placeholders = std::iter::repeat_n("?", names.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT id, path FROM assets WHERE type = ? AND id != ? AND filename IN ({placeholders})"
+    );
+    let mut query = sqlx::query(&sql).bind(companion_type).bind(asset_id);
+    for name in &names {
+        query = query.bind(name);
+    }
+    let Ok(rows) = query.fetch_all(&state.pool).await else {
+        return;
+    };
+    let Some(row) = rows.first() else {
+        return;
+    };
+    let companion_id: String = row.get("id");
+    let companion_path: String = row.get("path");
+
+    if is_video {
+        let _ = sqlx::query("UPDATE assets SET hidden = 1 WHERE id = ?")
+            .bind(asset_id)
+            .execute(&state.pool)
+            .await;
+        let _ = sqlx::query("UPDATE assets SET live_video_path = ? WHERE id = ?")
+            .bind(stored_path)
+            .bind(&companion_id)
+            .execute(&state.pool)
+            .await;
+    } else {
+        let _ = sqlx::query("UPDATE assets SET hidden = 1 WHERE id = ?")
+            .bind(&companion_id)
+            .execute(&state.pool)
+            .await;
+        let _ = sqlx::query("UPDATE assets SET live_video_path = ? WHERE id = ?")
+            .bind(&companion_path)
+            .bind(asset_id)
+            .execute(&state.pool)
+            .await;
+    }
 }
 
 // ---------------------------------------------------------------------------
