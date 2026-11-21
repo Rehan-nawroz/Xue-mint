@@ -86,6 +86,7 @@ interface NativeEnginePlugin {
   requestBatteryExemption(): Promise<{ granted: boolean }>;
   openBatterySettings(): Promise<void>;
   requestNotificationPermission(): Promise<{ granted: boolean }>;
+  factoryReset(): Promise<void>;
   saveEngineSettings(options: {
     settings: EngineSettings;
   }): Promise<{ settings: EngineSettings }>;
@@ -217,4 +218,8 @@ export function nativeRequestNotificationPermission(): Promise<boolean> {
   return native
     .requestNotificationPermission()
     .then((result) => result.granted);
+}
+
+export function nativeFactoryReset(): Promise<void> {
+  return native.factoryReset();
 }

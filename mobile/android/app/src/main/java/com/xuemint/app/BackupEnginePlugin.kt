@@ -1005,6 +1005,32 @@ class BackupEnginePlugin : Plugin() {
         call.resolve()
     }
 
+    /**
+     * Factory reset: wipes the engine's own data (photo library, digests,
+     * queue, progress, rules) and forgets the paired PC, then cancels any
+     * background work. The phone's actual gallery is never touched.
+     */
+    @PluginMethod
+    fun factoryReset(call: PluginCall) {
+        executor.execute {
+            try {
+                WorkManager.getInstance(context)
+                    .cancelUniqueWork(BackupWorker.UNIQUE_WORK)
+                WorkManager.getInstance(context)
+                    .cancelUniqueWork(BackupWorker.PERIODIC_WORK)
+                val store = EngineStore(context)
+                store.wipeAll()
+                PairingStore.clear(context)
+                BackupNotifier.cancelProgress(context)
+                context.cacheDir.resolve("media").deleteRecursively()
+                println("BackupEngine: factory reset done")
+                call.resolve()
+            } catch (error: Exception) {
+                call.reject("Could not reset the app: ${error.message}")
+            }
+        }
+    }
+
     // ---------------------------------------------------------- WorkManager
 
     @PluginMethod

@@ -331,6 +331,14 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
       await delay(Math.min(latencyMs, 50));
     },
 
+    async factoryReset(): Promise<void> {
+      await delay(Math.min(latencyMs, 50));
+      hashes.clear();
+      settings = { wifiOnly: true, chargingOnly: false, autoBackup: true };
+      pairedPc = null;
+      emit();
+    },
+
     async requestNotificationPermission(): Promise<{ granted: boolean }> {
       await delay(Math.min(latencyMs, 50));
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {

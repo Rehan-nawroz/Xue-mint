@@ -272,6 +272,77 @@ function DeviceHealthSection({ engine }: { engine: BackupEngine }) {
   );
 }
 
+/** Wipes the engine library, digests, queue, rules and pairing. */
+function FactoryResetSection({ engine }: { engine: BackupEngine }) {
+  const [confirming, setConfirming] = React.useState(false);
+  const [resetting, setResetting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const runReset = React.useCallback(async () => {
+    if (!engine.factoryReset) return;
+    setResetting(true);
+    setError(null);
+    try {
+      await engine.factoryReset();
+      setConfirming(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Reset failed.');
+    } finally {
+      setResetting(false);
+    }
+  }, [engine]);
+
+  return (
+    <section>
+      <h2 className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+        Factory reset
+      </h2>
+      <p className="mt-1 px-1 text-[11px] leading-relaxed text-muted">
+        Wipes everything this app stores: its photo list, backup history and
+        the PC pairing. The photos on your phone are never touched.
+      </p>
+      <div className="mt-2 overflow-hidden rounded-2xl border border-line bg-surface p-3 shadow-sm">
+        {!confirming ? (
+          <button
+            type="button"
+            data-testid="factory-reset"
+            className="w-full rounded-xl border border-line px-3 py-2 text-[12px] font-semibold text-danger hover:bg-danger-soft"
+            onClick={() => setConfirming(true)}
+          >
+            Reset app…
+          </button>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <p className="rounded-xl bg-danger-soft px-3 py-2 text-[12px] leading-snug text-danger" role="status">
+              This forgets your PC and erases the app's backup history. Your
+              gallery and your PC stay as they are.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="flex-1 rounded-xl border border-line px-3 py-2 text-[12px] font-semibold hover:bg-surface-2"
+                onClick={() => setConfirming(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="factory-reset-confirm"
+                className="flex-1 rounded-xl bg-danger px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-50"
+                disabled={resetting}
+                onClick={() => void runReset()}
+              >
+                {resetting ? 'Resetting…' : 'Erase app data'}
+              </button>
+            </div>
+            {error ? <p className="text-[11px] text-danger" role="alert">{error}</p> : null}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function SettingsScreen({
   engine,
   status,
@@ -351,6 +422,8 @@ export function SettingsScreen({
         </Section>
 
         <DeviceHealthSection engine={engine} />
+
+        <FactoryResetSection engine={engine} />
 
         <Section title="Your PC">
           <div className="px-4 py-3">

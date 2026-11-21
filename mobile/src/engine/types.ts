@@ -221,6 +221,9 @@ export interface BackupEngine {
   /** Runtime ask for the notification permission (Android 13+). */
   requestNotificationPermission?(): Promise<{ granted: boolean }>;
 
+  /** Wipes the engine library, rules and pairing; the phone gallery stays. */
+  factoryReset?(): Promise<void>;
+
   /** Subscribes to status changes caused by engine work. */
   subscribe(listener: (status: BackupStatus) => void): () => void;
 }

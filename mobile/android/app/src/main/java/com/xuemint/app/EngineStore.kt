@@ -429,4 +429,18 @@ class EngineStore(context: Context) :
             lastError = textOr("last_error")
         )
     }
+
+    /** Factory reset: every photo row, digest, queue state, rule and
+     * progress note is erased; the store is left empty and idle. */
+    fun wipeAll() {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.execSQL("DELETE FROM $TABLE_PHOTOS")
+            db.execSQL("DELETE FROM $TABLE_KV")
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
 }

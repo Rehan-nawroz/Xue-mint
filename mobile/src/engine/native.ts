@@ -7,6 +7,7 @@ import {
   nativeDiscoverPc,
   nativeEnginePhotos,
   nativeEngineSettings,
+  nativeFactoryReset,
   nativeMediaServer,
   nativeOpenBatterySettings,
   nativePairPc,
@@ -269,6 +270,10 @@ class NativeEngine implements BackupEngine {
 
   async requestNotificationPermission(): Promise<{ granted: boolean }> {
     return { granted: await nativeRequestNotificationPermission() };
+  }
+
+  async factoryReset(): Promise<void> {
+    await nativeFactoryReset();
   }
 
   /** Publishes state updates while the UI is open. */

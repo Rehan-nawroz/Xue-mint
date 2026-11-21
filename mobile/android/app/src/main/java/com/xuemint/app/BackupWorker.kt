@@ -43,7 +43,7 @@ class BackupWorker(context: Context, parameters: WorkerParameters) :
 
     companion object {
         const val UNIQUE_WORK = "xue-mint-backup"
-        private const val PERIODIC_WORK = "xue-mint-backup-periodic"
+        const val PERIODIC_WORK = "xue-mint-backup-periodic"
 
         /** How often the safety-net pass runs with the app closed. */
         private const val PERIODIC_HOURS = 3L
