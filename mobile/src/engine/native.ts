@@ -9,6 +9,7 @@ import {
   nativeEngineSettings,
   nativeDownloadAsset,
   nativeFactoryReset,
+  nativeImportFromGallery,
   nativeMediaServer,
   nativeOpenBatterySettings,
   nativePairPc,
@@ -29,6 +30,8 @@ import type {
   EngineSettings,
   EngineSettingsUpdate,
   HashedPhoto,
+  ImportProgress,
+  ImportSummary,
   PairingPayload,
   PairedPc,
   PhonePhoto,
@@ -202,6 +205,13 @@ class NativeEngine implements BackupEngine {
   /** Asks the PC to drop the asset from its library index. */
   async deleteAsset(assetId: string): Promise<void> {
     await nativeDeleteAsset(assetId);
+  }
+
+  /** Picks photos in the system picker and imports them on the native side. */
+  importFromGallery(
+    onProgress?: (progress: ImportProgress) => void
+  ): Promise<ImportSummary> {
+    return nativeImportFromGallery(onProgress);
   }
 
   /** Kicks a backup pass and reports where the engine stands afterwards. */

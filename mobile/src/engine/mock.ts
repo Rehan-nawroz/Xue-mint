@@ -7,6 +7,8 @@ import type {
   EngineSettings,
   EngineSettingsUpdate,
   HashedPhoto,
+  ImportProgress,
+  ImportSummary,
   PairingPayload,
   PairedPc,
   PhonePhoto,
@@ -150,6 +152,7 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
   let currentPhoto: string | null = null;
   let uploadedBytes = 0;
   let failedIds = new Set<string>();
+  let importedCount = 0;
 
   const connection = (): BackupStatus['connection'] => {
     if (!pairedPc) return 'not_paired';
@@ -388,6 +391,55 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
       await delay(latencyMs);
       const index = library.findIndex((asset) => asset.id === assetId);
       if (index >= 0) library.splice(index, 1);
+    },
+
+    /**
+     * Simulates the system picker: two new photos are "picked" and added to
+     * the sample PC's library, newest first, with the same progress phases
+     * the native engine publishes.
+     */
+    async importFromGallery(
+      onProgress?: (progress: ImportProgress) => void
+    ): Promise<ImportSummary> {
+      requirePc();
+      if (connection() !== 'connected') {
+        throw new Error("PC not reachable — try again when you're home");
+      }
+      const names = ['IMG_9907.jpg', 'IMG_9908.jpg'];
+      for (let i = 0; i < names.length; i += 1) {
+        const size = 1_640_000 + i * 210_000;
+        const step = (sent: number) => {
+          onProgress?.({
+            phase: sent === 0 ? 'hashing' : 'uploading',
+            current: i + 1,
+            total: names.length,
+            filename: names[i],
+            sentBytes: sent,
+            totalBytes: size,
+          });
+        };
+        step(0);
+        await delay(Math.max(120, latencyMs));
+        step(Math.round(size / 2));
+        await delay(Math.max(120, latencyMs));
+        step(size);
+        await delay(Math.max(120, latencyMs));
+        const takenAt = new Date().toISOString();
+        library.unshift({
+          id: `imported-${String(importedCount).padStart(3, '0')}`,
+          type: 'photo',
+          filename: names[i],
+          takenAt,
+          addedAt: takenAt,
+          width: 4032,
+          height: 3024,
+          size,
+          thumbUrl: svgTile(`Import ${importedCount + 1}`, 300 + importedCount * 37),
+          originalUrl: svgTile(`Imported ${importedCount + 1}`, 300 + importedCount * 37, true),
+        });
+        importedCount += 1;
+      }
+      return { imported: names.length, duplicates: 0, failed: 0, failures: [] };
     },
 
     /**

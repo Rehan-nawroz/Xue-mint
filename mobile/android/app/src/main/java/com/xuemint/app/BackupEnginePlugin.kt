@@ -2,14 +2,18 @@ package com.xuemint.app
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
+import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -18,6 +22,7 @@ import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
+import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
@@ -603,6 +608,108 @@ class BackupEnginePlugin : Plugin() {
             }
             if (sawAuthProblem) call.reject(UNPAIRED_MESSAGE)
             else call.reject("PC not reachable — try again when you're home")
+        }
+    }
+
+    // ------------------------------------------------- engine: gallery import
+
+    /**
+     * Opens the system photo picker and imports what the user picks straight
+     * into the PC's library — hash, dedupe, chunked upload — with progress
+     * published on the importProgress event. The picker needs no permission.
+     */
+    @PluginMethod
+    fun importFromGallery(call: PluginCall) {
+        val intent = photoPickerIntent() ?: run {
+            call.reject("This Android version cannot open the photo picker.")
+            return
+        }
+        try {
+            startActivityForResult(call, intent, "pickPhotosResult")
+        } catch (error: Exception) {
+            call.reject("Could not open the photo picker: ${error.message}")
+        }
+    }
+
+    /** Multi-select photos and videos, like the desktop's Add photos. */
+    private fun photoPickerIntent(): Intent? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val intent = Intent(MediaStore.ACTION_PICK_IMAGES)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                intent.putExtra(
+                    MediaStore.EXTRA_PICK_IMAGES_LAUNCH_TAB,
+                    MediaStore.PICK_IMAGES_TAB_IMAGES
+                )
+            }
+            intent.putExtra(
+                MediaStore.EXTRA_PICK_IMAGES_MAX,
+                MediaStore.getPickImagesMaxLimit()
+            )
+            intent
+        } else {
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }
+        }
+    }
+
+    @ActivityCallback
+    private fun pickPhotosResult(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        val uris = mutableListOf<Uri>()
+        val clip = result.data?.clipData
+        if (clip != null) {
+            for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
+        } else {
+            result.data?.data?.let { uris.add(it) }
+        }
+        if (uris.isEmpty()) {
+            // The user closed the picker without choosing anything.
+            call.resolve(
+                JSObject()
+                    .put("imported", 0)
+                    .put("duplicates", 0)
+                    .put("failed", 0)
+                    .put("failures", JSArray())
+            )
+            return
+        }
+        executor.execute {
+            try {
+                val outcome = ImportRunner(context).run(uris) { phase, current, total, filename, sent, totalBytes ->
+                    notifyListeners(
+                        "importProgress",
+                        JSObject()
+                            .put("phase", phase)
+                            .put("current", current)
+                            .put("total", total)
+                            .put("filename", filename)
+                            .put("sentBytes", sent)
+                            .put("totalBytes", totalBytes)
+                    )
+                }
+                val failures = JSArray()
+                outcome.failures.forEach { failure ->
+                    failures.put(
+                        JSObject()
+                            .put("filename", failure.filename)
+                            .put("error", failure.error)
+                    )
+                }
+                call.resolve(
+                    JSObject()
+                        .put("imported", outcome.imported)
+                        .put("duplicates", outcome.duplicates)
+                        .put("failed", outcome.failed)
+                        .put("failures", failures)
+                )
+            } catch (error: AuthRejected) {
+                call.reject(UNPAIRED_MESSAGE)
+            } catch (error: Exception) {
+                call.reject(error.message ?: "The photos could not be added.")
+            }
         }
     }
 

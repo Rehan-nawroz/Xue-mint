@@ -20,6 +20,21 @@ test('photos timeline and backup status', async ({ page }) => {
   await expect(page).toHaveScreenshot('photos.png');
 });
 
+test('plus button adds gallery photos to the library', async ({ page }) => {
+  await page.getByTestId('add-photos').click();
+  const sheet = page.getByTestId('import-sheet');
+  await expect(sheet).toBeVisible();
+  await expect(page.getByTestId('import-summary')).toContainText(
+    'Added 2 photos to your library.'
+  );
+  // The timeline refreshed with the imported photos at the top.
+  await expect(
+    page.getByRole('button', { name: /Photo: IMG_9907\.jpg/ })
+  ).toBeVisible();
+  await sheet.getByRole('button', { name: 'Done' }).click();
+  await expect(sheet).toBeHidden();
+});
+
 test('library placeholder', async ({ page }) => {
   await page.getByRole('button', { name: 'Library' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Library' })).toBeVisible();

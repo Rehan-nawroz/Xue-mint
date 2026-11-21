@@ -153,6 +153,28 @@ export interface TimelinePage {
   nextCursor: string | null;
 }
 
+/** Live progress of one gallery import, published by the engine. */
+export interface ImportProgress {
+  /** What is happening to the current file. */
+  phase: 'hashing' | 'checking' | 'uploading';
+  /** 1-based position of the current file in the batch. */
+  current: number;
+  total: number;
+  filename: string;
+  sentBytes: number;
+  totalBytes: number;
+}
+
+/** How a gallery import ended. */
+export interface ImportSummary {
+  /** Files newly stored on the PC. */
+  imported: number;
+  /** Files the PC already had — the same content, byte for byte. */
+  duplicates: number;
+  failed: number;
+  failures: { filename: string; error: string }[];
+}
+
 /**
  * The single boundary between the React UI and all backup work.
  *
@@ -193,6 +215,14 @@ export interface BackupEngine {
 
   /** Reads a page of the PC library timeline, newest first. */
   fetchTimeline(cursor?: string | null, limit?: number): Promise<TimelinePage>;
+
+  /**
+   * Opens the system photo picker and adds the picked pictures to the PC's
+   * library, so they sync to every paired device. Progress arrives through
+   * the callback; a picker closed without choices resolves with an all-zero
+   * summary.
+   */
+  importFromGallery(onProgress?: (progress: ImportProgress) => void): Promise<ImportSummary>;
 
   /** Runs one backup pass now: scan, hash, check, upload. */
   startBackup(): Promise<BackupStatus>;

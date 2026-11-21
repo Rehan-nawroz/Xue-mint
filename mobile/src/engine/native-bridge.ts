@@ -1,10 +1,13 @@
 import { registerPlugin } from '@capacitor/core';
+import type { PluginListenerHandle } from '@capacitor/core';
 import type {
   BackupPhase,
   ConnectionState,
   DeviceHealth,
   DiscoveredPc,
   EngineSettings,
+  ImportProgress,
+  ImportSummary,
   PairedPc,
   PhotoBackupState,
 } from './types';
@@ -95,6 +98,11 @@ interface NativeEnginePlugin {
   saveEngineSettings(options: {
     settings: EngineSettings;
   }): Promise<{ settings: EngineSettings }>;
+  importFromGallery(): Promise<ImportSummary>;
+  addListener(
+    eventName: 'importProgress',
+    listenerFunc: (progress: ImportProgress) => void
+  ): Promise<PluginListenerHandle> & PluginListenerHandle;
 }
 
 const native = registerPlugin<NativeEnginePlugin>('BackupEngine');
@@ -235,4 +243,20 @@ export function nativeDownloadAsset(options: {
   mimeType: string;
 }): Promise<{ filename: string; savedTo: string }> {
   return native.downloadAsset(options);
+}
+
+/**
+ * Opens the system photo picker and imports the picks into the PC's
+ * library. The progress listener is registered before the call so no event
+ * is missed, and is always removed afterwards.
+ */
+export function nativeImportFromGallery(
+  onProgress?: (progress: ImportProgress) => void
+): Promise<ImportSummary> {
+  const listening = onProgress
+    ? native.addListener('importProgress', (progress) => onProgress(progress))
+    : null;
+  return native
+    .importFromGallery()
+    .finally(() => void listening?.then((handle) => handle.remove()));
 }

@@ -2,22 +2,13 @@ package com.xuemint.app
 
 import android.content.Context
 import android.net.Uri
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody
-import okhttp3.Request
-import okio.BufferedSink
 import org.json.JSONObject
 import java.io.IOException
-import java.io.InputStream
-import java.net.SocketTimeoutException
-import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Bytes streamed per upload request; smaller chunks resume more precisely. */
-private const val CHUNK_BYTES = 1024L * 1024L
 private const val CHECK_BATCH = 400
 private const val HASH_BATCH = 40
-private const val MAX_MISMATCH_RETRIES = 5
 
 private const val KV_PHASE = "phase"
 private const val KV_MESSAGE = "status_message"
@@ -163,7 +154,7 @@ class BackupRunner(
                 if (batch.isEmpty()) break
                 val hashes = batch.map { it.second }
                 val missingFromPc = try {
-                    checkMissing(stored, hashes)
+                    AssetTransfer.checkMissing(stored, hashes)
                 } catch (error: IOException) {
                     setPhase("paused", "PC not reachable — will back up when you're home")
                     BackupNotifier.summary(context, "PC not reachable — backup waits until you're home")
@@ -251,156 +242,24 @@ class BackupRunner(
 
     // ------------------------------------------------------------- uploads
 
-    private fun uploadPhoto(pairing: StoredPairing, photo: StoredPhoto) {
-        val client = PinnedNet.client(
-            pairing.fingerprint,
-            connectSeconds = 10,
-            readSeconds = 30,
-            callSeconds = 0,
-            writeSeconds = 120
-        )
-        var offset = photo.uploadOffset
-        var mismatchRetries = 0
-
-        while (true) {
-            if (photo.size == 0L) {
-                // An empty file still needs its final request so the server
-                // can hash-verify and store it.
-                sendChunk(client, pairing, photo, 0, 0, true)
-                return
-            }
-            if (offset >= photo.size) return
-            val chunkLength = minOf(CHUNK_BYTES, photo.size - offset)
-            val isLast = offset + chunkLength >= photo.size
-
-            val response = try {
-                sendChunk(client, pairing, photo, offset, chunkLength, isLast)
-            } catch (error: OffsetMismatch) {
-                mismatchRetries += 1
-                if (mismatchRetries > MAX_MISMATCH_RETRIES) {
-                    throw IOException("The PC and the phone could not agree on an offset.")
-                }
-                offset = error.serverOffset
-                continue
-            }
-
-            when {
-                response.optBoolean("stored") -> return
-                response.has("offset") -> {
-                    offset = response.getLong("offset")
-                    store.setUploadProgress(photo.mediaId, offset)
-                    setProgress(photo.size, offset)
-                    if (offset >= photo.size && !isLast) {
-                        // Defensive: the transfer should be complete only via
-                        // a final request.
-                        sendChunk(client, pairing, photo, offset, 0, true)
-                        return
-                    }
-                }
-                else -> throw IOException("The PC gave an unexpected upload answer.")
-            }
-        }
-    }
-
     /**
-     * Streams one chunk straight from the photo's content resolver to the
-     * request body. Nothing is buffered whole in memory.
+     * Streams one queued photo to the PC through the shared transfer
+     * protocol. Resume state stays in the engine store; the status bar gets
+     * each confirmed offset as chunk progress.
      */
-    private fun sendChunk(
-        client: okhttp3.OkHttpClient,
-        pairing: StoredPairing,
-        photo: StoredPhoto,
-        offset: Long,
-        chunkLength: Long,
-        isLast: Boolean
-    ): JSONObject {
-        val uri = Uri.parse(photo.uri)
-        val body = object : RequestBody() {
-            override fun contentType() = "application/octet-stream".toMediaType()
-            override fun contentLength(): Long = chunkLength
-            override fun writeTo(sink: BufferedSink) {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    input.skipFully(offset)
-                    val buffer = ByteArray(64 * 1024)
-                    var remaining = chunkLength
-                    while (remaining > 0) {
-                        val read = input.read(
-                            buffer,
-                            0,
-                            minOf(buffer.size.toLong(), remaining).toInt()
-                        )
-                        if (read < 0) {
-                            throw IOException("The photo ended before its full size was sent.")
-                        }
-                        sink.write(buffer, 0, read)
-                        remaining -= read
-                    }
-                } ?: throw IOException("The photo could not be opened for upload.")
-            }
-        }
-
-        val url = "https://${
-            pairing.addresses.firstOrNull()?.trim().orEmpty()
-        }:${pairing.port}/assets/upload/${photo.hash}" + if (isLast) "?final=1" else ""
-
-        val request = Request.Builder()
-            .url(url)
-            .header("Authorization", "Device ${pairing.credential}")
-            .header("offset", offset.toString())
-            .header("x-total", photo.size.toString())
-            .header("x-filename", encodedFilename(photo.filename))
-            .put(body)
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
-            when {
-                response.code == 200 -> return JSONObject(text)
-                response.code == 401 || response.code == 403 -> throw AuthRejected()
-                response.code == 409 -> {
-                    val (code, message) = PinnedNet.parseError(text)
-                    if (code == "OFFSET_MISMATCH") {
-                        val serverOffset = Regex("Server offset: (\\d+)")
-                            .find(message)?.groupValues?.get(1)?.toLong()
-                        throw OffsetMismatch(serverOffset ?: 0)
-                    }
-                    throw IOException(message.ifEmpty { "The PC refused the upload." })
-                }
-                else -> throw IOException(
-                    "The PC answered with HTTP ${response.code}."
-                )
-            }
-        }
-    }
-
-    private fun checkMissing(pairing: StoredPairing, hashes: List<String>): Set<String> {
-        val client = PinnedNet.client(pairing.fingerprint, 5, 10, 15)
-        val payload = JSONObject().put("hashes", org.json.JSONArray(hashes))
-        val request = Request.Builder()
-            .url(
-                "https://${pairing.addresses.firstOrNull()?.trim().orEmpty()}:${pairing.port}" +
-                    "/assets/check"
-            )
-            .header("Authorization", "Device ${pairing.credential}")
-            .post(okhttp3.RequestBody.create(JSON_MEDIA_TYPE, payload.toString()))
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
-            when {
-                response.code == 200 -> {
-                    val json = JSONObject(text)
-                    val array = json.optJSONArray("missing") ?: org.json.JSONArray()
-                    val set = mutableSetOf<String>()
-                    for (i in 0 until array.length()) set.add(array.optString(i))
-                    return set
-                }
-                response.code == 401 || response.code == 403 -> throw AuthRejected()
-                else -> throw IOException(
-                    "The PC answered with HTTP ${response.code} during the check."
-                )
-            }
-        }
+    private fun uploadPhoto(pairing: StoredPairing, photo: StoredPhoto) {
+        val hash = photo.hash ?: throw IOException("The photo has no digest yet.")
+        AssetTransfer.upload(
+            pairing,
+            context,
+            Uri.parse(photo.uri),
+            hash,
+            photo.filename,
+            photo.size,
+            startOffset = photo.uploadOffset,
+            onOffset = { store.setUploadProgress(photo.mediaId, it) },
+            onChunk = { sent, total -> setProgress(total, sent) }
+        )
     }
 
     // --------------------------------------------------------------- state
@@ -430,24 +289,6 @@ class BackupRunner(
         store.setKv(KV_TOTAL, total.toString())
         store.setKv(KV_SENT, sent.toString())
     }
-
-    private fun InputStream.skipFully(bytes: Long) {
-        var remaining = bytes
-        while (remaining > 0) {
-            val skipped = skip(remaining)
-            if (skipped <= 0) {
-                // Some streams cannot skip; read-and-discard instead.
-                val one = read()
-                if (one < 0) throw IOException("The photo is shorter than its recorded size.")
-                remaining -= 1
-            } else {
-                remaining -= skipped
-            }
-        }
-    }
-
-    private fun encodedFilename(filename: String): String =
-        URLEncoder.encode(filename, "UTF-8").replace("+", "%20")
 }
 
 /** Convenience for the plugin: where the pass stands right now. */
