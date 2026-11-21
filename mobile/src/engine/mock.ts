@@ -335,12 +335,13 @@ export function createMockEngine(options: MockEngineOptions = {}): BackupEngine 
       await delay(latencyMs * 3);
     },
 
-    async factoryReset(): Promise<void> {
+    async factoryReset(): Promise<{ pcReset: boolean }> {
       await delay(Math.min(latencyMs, 50));
       hashes.clear();
       settings = { wifiOnly: true, chargingOnly: false, autoBackup: true };
       pairedPc = null;
       emit();
+      return { pcReset: true };
     },
 
     async requestNotificationPermission(): Promise<{ granted: boolean }> {

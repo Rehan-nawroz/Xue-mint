@@ -222,7 +222,7 @@ export interface BackupEngine {
   requestNotificationPermission?(): Promise<{ granted: boolean }>;
 
   /** Wipes the engine library, rules and pairing; the phone gallery stays. */
-  factoryReset?(): Promise<void>;
+  factoryReset?(): Promise<{ pcReset?: boolean } | void>;
 
   /** Saves a PC asset into the phone's gallery. */
   downloadAsset?(asset: { id: string; filename: string | null; type: string }): Promise<void>;

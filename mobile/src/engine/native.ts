@@ -273,8 +273,8 @@ class NativeEngine implements BackupEngine {
     return { granted: await nativeRequestNotificationPermission() };
   }
 
-  async factoryReset(): Promise<void> {
-    await nativeFactoryReset();
+  async factoryReset(): Promise<{ pcReset?: boolean } | void> {
+    return nativeFactoryReset();
   }
 
   async downloadAsset(asset: { id: string; filename: string | null; type: string }): Promise<void> {

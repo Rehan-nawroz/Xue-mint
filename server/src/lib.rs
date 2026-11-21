@@ -47,6 +47,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/local/factory-reset", post(api::local::factory_reset))
         .route("/local/import", post(api::local::import_asset))
+        .route("/reset", post(api::local::device_reset))
         .route(
             "/local/connection",
             get(api::local::get_connection).put(api::local::set_connection),

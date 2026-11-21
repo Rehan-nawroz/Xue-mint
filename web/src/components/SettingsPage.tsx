@@ -334,7 +334,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
 /** Wipes the server's library, thumbnails, pairing tokens and devices. */
 function FactoryResetPanel({ api }: { api: GalleryApi }) {
   const [confirming, setConfirming] = useState(false);
-  const [deleteFiles, setDeleteFiles] = useState(false);
+  const [deleteFiles, setDeleteFiles] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetMessage, setResetMessage] = useState<string | null>(null);

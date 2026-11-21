@@ -277,14 +277,21 @@ function FactoryResetSection({ engine }: { engine: BackupEngine }) {
   const [confirming, setConfirming] = React.useState(false);
   const [resetting, setResetting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [done, setDone] = React.useState<string | null>(null);
 
   const runReset = React.useCallback(async () => {
     if (!engine.factoryReset) return;
     setResetting(true);
     setError(null);
+    setDone(null);
     try {
-      await engine.factoryReset();
+      const outcome = await engine.factoryReset();
       setConfirming(false);
+      setDone(
+        outcome?.pcReset === false
+          ? 'Your phone is reset. Your PC could not be reached — open the desktop gallery and run its Factory reset too.'
+          : 'Everything is erased — this phone and your PC library.'
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Reset failed.');
     } finally {
@@ -298,8 +305,9 @@ function FactoryResetSection({ engine }: { engine: BackupEngine }) {
         Factory reset
       </h2>
       <p className="mt-1 px-1 text-[11px] leading-relaxed text-muted">
-        Wipes everything this app stores: its photo list, backup history and
-        the PC pairing. The photos on your phone are never touched.
+        Wipes the whole Xue-Mint system: this app's data, your PC's library
+        and the photos stored there, plus all pairings. The photos in your
+        phone's own gallery are never touched.
       </p>
       <div className="mt-2 overflow-hidden rounded-2xl border border-line bg-surface p-3 shadow-sm">
         {!confirming ? (
@@ -332,10 +340,20 @@ function FactoryResetSection({ engine }: { engine: BackupEngine }) {
                 disabled={resetting}
                 onClick={() => void runReset()}
               >
-                {resetting ? 'Resetting…' : 'Erase app data'}
+                {resetting ? 'Resetting — please wait…' : 'Erase everything'}
               </button>
             </div>
+            {resetting ? (
+              <p className="text-[11px] text-muted" role="status">
+                Erasing your phone's app data and your PC's library…
+              </p>
+            ) : null}
             {error ? <p className="text-[11px] text-danger" role="alert">{error}</p> : null}
+            {done ? (
+              <p className="rounded-xl bg-success-soft px-3 py-2 text-[12px] leading-snug text-ink" role="status">
+                {done}
+              </p>
+            ) : null}
           </div>
         )}
       </div>

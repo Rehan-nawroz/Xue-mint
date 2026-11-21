@@ -225,7 +225,7 @@ export function nativeRequestNotificationPermission(): Promise<boolean> {
     .then((result) => result.granted);
 }
 
-export function nativeFactoryReset(): Promise<void> {
+export function nativeFactoryReset(): Promise<{ pcReset?: boolean } | void> {
   return native.factoryReset();
 }
 

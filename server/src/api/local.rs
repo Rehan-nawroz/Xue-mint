@@ -500,6 +500,18 @@ pub async fn factory_reset(
     _local: LocalOnly,
     Json(request): Json<FactoryResetRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let files_removed = wipe_library(&state, request.delete_files).await?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "filesRemoved": files_removed,
+    })))
+}
+
+/// The actual wipe, shared by the gallery button and the phone request.
+pub(crate) async fn wipe_library(
+    state: &AppState,
+    delete_files: bool,
+) -> Result<usize, ApiError> {
     sqlx::query("DELETE FROM uploads").execute(&state.pool).await?;
     sqlx::query("DELETE FROM assets").execute(&state.pool).await?;
     sqlx::query("DELETE FROM pairing_tokens")
@@ -511,7 +523,7 @@ pub async fn factory_reset(
         .await?;
 
     let mut files_removed = 0usize;
-    if request.delete_files {
+    if delete_files {
         files_removed = clear_dir_contents(&state.photos_dir())
             .map_err(|error| ApiError::internal(error.to_string()))?;
     }
@@ -520,15 +532,23 @@ pub async fn factory_reset(
     clear_dir_contents(&state.cfg.tmp_dir())
         .map_err(|error| ApiError::internal(error.to_string()))?;
 
-    println!(
-        "Factory reset: library wiped, {files_removed} watched file(s) removed"
-    );
+    println!("Factory reset: library wiped, {files_removed} watched file(s) removed");
+    Ok(files_removed)
+}
+
+/// A paired phone asks for a full ecosystem reset: the PC library, stored
+/// photos, thumbnails, pairing tokens and all devices go away. The caller
+/// wipes its own engine right after, so its credential stops working.
+pub async fn device_reset(
+    State(state): State<AppState>,
+    _device: crate::auth::Device,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let files_removed = wipe_library(&state, true).await?;
     Ok(Json(serde_json::json!({
         "ok": true,
         "filesRemoved": files_removed,
     })))
 }
-
 /// Response of a successful local import.
 #[derive(Debug, Serialize)]
 pub struct ImportDto {

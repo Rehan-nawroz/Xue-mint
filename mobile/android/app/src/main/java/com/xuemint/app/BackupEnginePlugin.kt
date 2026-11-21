@@ -1111,6 +1111,11 @@ class BackupEnginePlugin : Plugin() {
     @PluginMethod
     fun factoryReset(call: PluginCall) {
         executor.execute {
+            // The reset covers the whole system: first ask the PC to wipe
+            // its library, stored photos, thumbnails and pairings, then
+            // wipe this phone's engine and pairing. The phone's real
+            // gallery is never touched.
+            val pcReset = resetPcLibrary()
             try {
                 WorkManager.getInstance(context)
                     .cancelUniqueWork(BackupWorker.UNIQUE_WORK)
@@ -1121,13 +1126,38 @@ class BackupEnginePlugin : Plugin() {
                 PairingStore.clear(context)
                 BackupNotifier.cancelProgress(context)
                 context.cacheDir.resolve("media").deleteRecursively()
-                println("BackupEngine: factory reset done")
-                call.resolve()
+                println("BackupEngine: factory reset done (pcReset=$pcReset)")
+                call.resolve(JSObject().put("pcReset", pcReset))
             } catch (error: Exception) {
                 call.reject("Could not reset the app: ${error.message}")
             }
         }
     }
+
+    /** Asks the paired PC to wipe its library; false when unreachable. */
+    private fun resetPcLibrary(): Boolean {
+        val pairing = PairingStore.load(context) ?: return false
+        for (address in pairing.addresses) {
+            val trimmed = address.trim()
+            try {
+                val client = PinnedNet.client(pairing.fingerprint, 10, 30, 60, 30)
+                val request = Request.Builder()
+                    .url("https://$trimmed:${pairing.port}/reset")
+                    .header("Authorization", "Device ${pairing.credential}")
+                    .post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    println("BackupEngine: PC reset answered HTTP ${response.code}")
+                    return response.code == 200
+                }
+            } catch (error: Exception) {
+                println("BackupEngine: PC reset attempt on $trimmed failed: ${error.message}")
+            }
+        }
+        return false
+    }
+
+
 
     // ---------------------------------------------------------- WorkManager
 
