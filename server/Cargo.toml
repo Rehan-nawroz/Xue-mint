@@ -31,6 +31,8 @@ rand = "0.8"
 base64 = "0.22"
 notify = "7"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
+zune-heic = "0.5"
+heifer = { version = "0.5", default-features = false }
 kamadak-exif = "0.5"
 percent-encoding = "2"
 anyhow = "1"
@@ -40,4 +42,7 @@ if-addrs = "0.15.0"
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures-util = "0.3"
+heifer = { version = "0.5", default-features = false, features = ["encoder"] }
+sysinfo = "0.40"

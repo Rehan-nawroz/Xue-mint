@@ -2,10 +2,12 @@
 //!
 //! Photos: decoded with the `image` crate, EXIF orientation applied, resized to at
 //! most 400px on the long edge, saved as JPEG next to the database.
+//! HEIC stills: decoded with the pure-Rust HEIF decoder (rotation applied by the
+//! decoder itself). RAW files: the largest embedded JPEG preview is decoded.
 //! Videos: a first frame is grabbed with a system ffmpeg binary when one is on PATH.
-//! HEIC and anything else we cannot decode: a neutral placeholder JPEG so the
-//! gallery still shows a tile; native HEIC decoding is a hardening-phase upgrade.
+//! Anything else: a neutral placeholder JPEG so the gallery still shows a tile.
 
+use crate::media::{self, intake};
 use crate::state::AppState;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -49,13 +51,30 @@ fn make_thumbnail(
     }
 }
 
-/// Decodes and resizes a raster image; None when the format is not decodable
-/// (HEIC, RAW files, corrupt data).
+/// Decodes and resizes an image; None when the format is not decodable
+/// (corrupt data, missing RAW preview, unsupported container).
 fn decode_thumb(src: &Path, orientation: u32) -> Option<image::DynamicImage> {
-    let reader = image::ImageReader::open(src).ok()?;
-    let img = reader.decode().ok()?;
-    let img = apply_orientation(img, orientation);
-    Some(img.thumbnail(THUMB_MAX_EDGE, THUMB_MAX_EDGE))
+    if let Ok(reader) = image::ImageReader::open(src) {
+        if let Ok(image) = reader.decode() {
+            return Some(
+                apply_orientation(image, orientation).thumbnail(THUMB_MAX_EDGE, THUMB_MAX_EDGE),
+            );
+        }
+    }
+
+    let ext = media::ext_of(src);
+    if media::is_heic_ext(&ext) {
+        // The HEIF decoder already applies the container's rotation/mirroring;
+        // applying EXIF orientation too would rotate some photos twice.
+        return intake::decode_heic(src)
+            .map(|image| image.thumbnail(THUMB_MAX_EDGE, THUMB_MAX_EDGE));
+    }
+    if media::is_raw_ext(&ext) {
+        return intake::raw_preview_image(src).map(|image| {
+            apply_orientation(image, orientation).thumbnail(THUMB_MAX_EDGE, THUMB_MAX_EDGE)
+        });
+    }
+    None
 }
 
 /// Applies an EXIF orientation value (1-8) so the thumbnail is upright.
