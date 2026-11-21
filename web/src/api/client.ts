@@ -194,5 +194,12 @@ export function createServerApi(): GalleryApi {
         body: JSON.stringify({ allowed }),
       });
     },
+
+    factoryReset(options?: { deleteFiles?: boolean }) {
+      return requestJson<{ filesRemoved: number }>('/local/factory-reset', {
+        method: 'POST',
+        body: JSON.stringify({ deleteFiles: options?.deleteFiles ?? false }),
+      });
+    },
   };
 }

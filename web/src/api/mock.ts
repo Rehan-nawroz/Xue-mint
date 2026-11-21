@@ -192,6 +192,14 @@ export function createMockApi(options: MockOptions = {}): GalleryApi {
       return connectionStatus();
     },
 
+    async factoryReset(options?: { deleteFiles?: boolean }) {
+      await delay(latencyMs);
+      // The mock drops its sample library and reports the removed files.
+      const removed = assets.length;
+      assets = [];
+      return { filesRemoved: options?.deleteFiles ? removed : 0 };
+    },
+
     async createPairingCode(): Promise<PairingInfo> {
       await delay(latencyMs);
       return {

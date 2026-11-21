@@ -322,8 +322,103 @@ export function SettingsPage({ api }: SettingsPageProps) {
         </button>
       </section>
 
+      <FactoryResetPanel api={api} />
+
       {pairingOpen ? (
         <PairingDialog api={api} onClose={() => setPairingOpen(false)} />
+      ) : null}
+    </section>
+  );
+}
+
+/** Wipes the server's library, thumbnails, pairing tokens and devices. */
+function FactoryResetPanel({ api }: { api: GalleryApi }) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleteFiles, setDeleteFiles] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+
+  const runReset = useCallback(async () => {
+    setResetting(true);
+    setResetError(null);
+    setResetMessage(null);
+    try {
+      const result = await api.factoryReset({ deleteFiles });
+      setResetMessage(
+        result.filesRemoved > 0
+          ? `Reset done — ${result.filesRemoved} file(s) removed from the watched folder.`
+          : 'Reset done — the library is empty.'
+      );
+      setConfirming(false);
+    } catch (caught) {
+      setResetError(caught instanceof Error ? caught.message : 'Reset failed.');
+    } finally {
+      setResetting(false);
+    }
+  }, [api, deleteFiles]);
+
+  return (
+    <section className="pairing-panel" aria-labelledby="factory-reset-title">
+      <div>
+        <h3 id="factory-reset-title">Factory reset</h3>
+        <p>
+          Removes every photo from this PC's library: the index, thumbnails,
+          pairing tokens and all paired phones. Your settings stay. Nothing is
+          sent anywhere.
+        </p>
+      </div>
+      {!confirming ? (
+        <button
+          type="button"
+          className="danger-outline-button"
+          onClick={() => setConfirming(true)}
+        >
+          Reset library…
+        </button>
+      ) : (
+        <div className="factory-reset-confirm">
+          <label className="factory-reset-confirm__check">
+            <input
+              type="checkbox"
+              checked={deleteFiles}
+              onChange={(event) => setDeleteFiles(event.target.checked)}
+            />
+            Also delete the photo files stored in the watched folder
+          </label>
+          <p className="factory-reset-confirm__warn" role="status">
+            {deleteFiles
+              ? 'This permanently deletes the files inside the watched folder. Copy them out first if you need them.'
+              : "Photo files stay in the watched folder; only this PC's library is emptied."}
+          </p>
+          <div className="factory-reset-confirm__actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setConfirming(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="danger-button"
+              disabled={resetting}
+              onClick={() => void runReset()}
+            >
+              {resetting ? 'Resetting…' : 'Erase everything'}
+            </button>
+          </div>
+          {resetError ? (
+            <p role="alert" className="factory-reset-confirm__error">
+              {resetError}
+            </p>
+          ) : null}
+        </div>
+      )}
+      {resetMessage ? (
+        <p role="status" className="factory-reset-confirm__done">
+          {resetMessage}
+        </p>
       ) : null}
     </section>
   );

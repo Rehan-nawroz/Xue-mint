@@ -106,6 +106,7 @@ export function makeApi(overrides: Partial<GalleryApi> = {}): GalleryApi {
     createPairingCode: async () => defaultPairing,
     fetchConnection: async () => defaultConnection,
     setConnection: async (allowed) => ({ ...defaultConnection, allowed }),
+    factoryReset: async () => ({ filesRemoved: 0 }),
     saveSettings: async (update) => ({
       ...defaultSettings,
       ...update,

@@ -461,3 +461,70 @@ pub async fn pairing_code(
         .to_rfc3339_opts(SecondsFormat::Secs, true);
     Ok(Json(pairing_dto(&state, Some(token), Some(expires_at))?))
 }
+
+/// Request body for the factory reset.
+#[derive(Debug, Deserialize)]
+pub struct FactoryResetRequest {
+    /// Also delete the photo files stored in the watched folder.
+    #[serde(default)]
+    pub delete_files: bool,
+}
+
+/// Removes every file and subdirectory inside a folder, keeping the folder.
+/// Returns how many files were removed.
+fn clear_dir_contents(dir: &std::path::Path) -> std::io::Result<usize> {
+    let mut removed = 0usize;
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)?;
+        } else if path.is_file() {
+            std::fs::remove_file(&path)?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// POST /local/factory-reset — wipes everything the server stores: the asset
+/// index, upload sessions, cached thumbnails and temp files, pairing tokens
+/// and every paired device. With `deleteFiles`, the photo files inside the
+/// watched folder are removed too. Folder, port and TLS identity are kept:
+/// they are configuration, not data.
+pub async fn factory_reset(
+    State(state): State<AppState>,
+    _local: LocalOnly,
+    Json(request): Json<FactoryResetRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    sqlx::query("DELETE FROM uploads").execute(&state.pool).await?;
+    sqlx::query("DELETE FROM assets").execute(&state.pool).await?;
+    sqlx::query("DELETE FROM pairing_tokens")
+        .execute(&state.pool)
+        .await?;
+    sqlx::query("DELETE FROM devices WHERE id != ?")
+        .bind(LOCAL_DEVICE_ID)
+        .execute(&state.pool)
+        .await?;
+
+    let mut files_removed = 0usize;
+    if request.delete_files {
+        files_removed = clear_dir_contents(&state.photos_dir())
+            .map_err(|error| ApiError::internal(error.to_string()))?;
+    }
+    clear_dir_contents(&state.cfg.thumbs_dir())
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    clear_dir_contents(&state.cfg.tmp_dir())
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+
+    println!(
+        "Factory reset: library wiped, {files_removed} watched file(s) removed"
+    );
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "filesRemoved": files_removed,
+    })))
+}

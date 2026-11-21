@@ -986,3 +986,35 @@
     margin: 0 auto;
   }
 }
+
+/* Factory reset confirmation */
+.factory-reset-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.factory-reset-confirm__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.factory-reset-confirm__warn {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.factory-reset-confirm__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.factory-reset-confirm__error,
+.factory-reset-confirm__done {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}

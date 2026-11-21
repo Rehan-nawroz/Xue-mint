@@ -76,6 +76,8 @@ export interface GalleryApi {
   createPairingCode(): Promise<PairingInfo>;
   fetchConnection(): Promise<ConnectionStatus>;
   setConnection(allowed: boolean): Promise<ConnectionStatus>;
+  /** Wipes the server's library; optionally also the watched-folder files. */
+  factoryReset(options?: { deleteFiles?: boolean }): Promise<{ filesRemoved: number }>;
 }
 
 export class GalleryApiError extends Error {
